@@ -749,8 +749,8 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
     def test_six_word_analytical_label_is_kept(self):
         phrases = [
             "Inicio de clases con alimentación escolar",
-            "Gallinas ponedoras para economía familiar",
-            "Aprobación de recursos para la Variante Sampués",
+            "Puesto 8 en ranking QS nacional",
+            "Revisión del proyecto Canal del Dique",
         ]
         for phrase in phrases:
             self.assertEqual(len(phrase.split()), 6, msg=phrase)
