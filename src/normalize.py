@@ -52,11 +52,19 @@ def strip_controls(s: str) -> str:
     return "".join(ch for ch in as_text(s) if (ch >= " " or ch in "\n\t") and ch not in "\ufffe\uffff")
 
 
-def normalize_body_text(text: str, max_chars: int | None = DEFAULT_BODY_CHARS) -> str:
-    """Une saltos de maquetación y toma un tramo sustancial del artículo."""
+def prepare_article(text: str) -> str:
+    """CuerpoEs completo: conserva párrafos; limpia controles y saltos de carro."""
     t = strip_controls(as_text(text))
     t = t.replace("\r\n", "\n").replace("\r", "\n")
     t = re.sub(r"[\t\xa0]+", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    t = re.sub(r"[ ]{2,}", " ", t)
+    return t.strip()
+
+
+def normalize_body_text(text: str, max_chars: int | None = DEFAULT_BODY_CHARS) -> str:
+    """Une saltos de maquetación y toma un tramo sustancial del artículo."""
+    t = prepare_article(text)
     t = re.sub(r"\n+", " ", t)
     t = re.sub(r" {2,}", " ", t).strip()
     if max_chars and max_chars > 0 and len(t) > max_chars:
@@ -214,14 +222,26 @@ GESTION_VERBS = {
     "instalo", "instala",
     "doto", "dota",
     "beco", "beca",
+    "participo", "participa", "participaron",
+    "organizo", "organiza", "organizaron",
+    "convoco", "convoca", "convocaron",
+    "encabezo", "encabeza",
+    "presidio", "preside",
+    "dialogo", "dialoga",
+    "compromete", "comprometio", "comprometieron",
+    "reunio", "reune", "reunieron",
 }
 
 GESTION_NOUNS = {
     "convenio", "convenios", "acuerdo", "acuerdos", "alianza", "alianzas",
     "ranking", "acreditacion", "beca", "becas", "infraestructura",
     "inversion", "inversiones", "programa", "programas", "obra", "obras",
-    "graduacion", "reconocimiento", "reconocimientos", "gestion",
+    "graduacion", "reconocimiento", "reconocimientos", "gestion", "gestiones",
     "campus", "laboratorios", "investigacion", "convocatoria",
+    "encuentro", "encuentros", "evento", "eventos", "compromiso", "compromisos",
+    "entrega", "entregas", "lanzamiento", "lanzamientos", "avance", "avances",
+    "reunion", "reuniones", "ceremonia", "jornada", "feria", "visita", "visitas",
+    "conversatorio", "pacto", "pactos", "dialogo", "mesa",
 }
 
 NEG_HEADS = {
@@ -363,6 +383,34 @@ def _split_sentences(text: str) -> list[str]:
         return []
     protected = re.sub(r"\b([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])\.(?=\s)", r"\1·", text)
     return [s.replace("·", ".").strip() for s in re.split(r"(?<=[.!?])\s+", protected) if s.strip()]
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    """Párrafos del CuerpoEs; líneas cortas de maquetación se unen."""
+    article = prepare_article(text)
+    if not article:
+        return []
+    paras = [p.strip() for p in re.split(r"\n\s*\n+", article) if p.strip()]
+    if len(paras) <= 1 and "\n" in article:
+        lines = [ln.strip() for ln in article.split("\n") if ln.strip()]
+        if not lines:
+            return []
+        if max(len(ln) for ln in lines) < 90:
+            return [" ".join(lines)]
+        return lines
+    return paras or ([article] if article else [])
+
+
+def _passage_units(text: str) -> list[str]:
+    """Oraciones por párrafo: unidades para ventanas alrededor de la marca."""
+    units: list[str] = []
+    for para in _split_paragraphs(text):
+        sents = _split_sentences(para)
+        if sents:
+            units.extend(sents)
+        elif para.strip():
+            units.append(para.strip())
+    return units
 
 
 def infer_focus_tono(
@@ -728,30 +776,46 @@ def extract_brand_passages(
     marca: str,
     aliases: Sequence[str],
     voceros: Sequence[str],
-    max_chars: int = 2500,
+    max_chars: int = 4000,
 ) -> str:
-    """Oraciones que mencionan marca/alias/voceros: son las que deciden el tono."""
+    """Ventanas de oraciones/párrafos alrededor de marca, alias y voceros.
+
+    Recorre el CuerpoEs completo (saltos de línea permitidos). No se queda
+    en la primera línea ni recorta el artículo antes de buscar menciones.
+    Esas ventanas son la fuente principal de tono y subtema.
+    """
     titulo = as_text(titulo)
-    body = normalize_body_text(resumen, max_chars=DEFAULT_BODY_CHARS)
+    article = prepare_article(resumen)
     names = focus_names(marca, aliases, voceros)
-    if not body:
-        return titulo[:220] if _hit_names(ocr_fold(titulo), names) else ""
-    sentences = _split_sentences(body)
-    picked = []
-    for i, sent in enumerate(sentences):
-        nf = ocr_fold(sent)
-        if _hit_names(nf, names):
-            block = sent
-            if len(sent.split()) < 12 and i + 1 < len(sentences):
-                block = f"{sent} {sentences[i + 1]}"
-            if block not in picked:
-                picked.append(block)
-    if picked:
-        text = " ".join(picked)
-        if titulo and ocr_fold(titulo) not in ocr_fold(text):
-            if _hit_names(ocr_fold(titulo), names):
-                text = f"{titulo}. {text}"
-        return text[:max_chars]
-    if _hit_names(ocr_fold(f"{titulo} {body}"), names):
-        return f"{titulo}. {body[:1200]}".strip(" .")[:max_chars]
-    return ""
+    if not article:
+        return titulo[:280] if _hit_names(ocr_fold(titulo), names) else ""
+
+    units = _passage_units(article)
+    if not units:
+        units = [normalize_body_text(article, max_chars=None)] if article else []
+
+    hit_idx = [i for i, unit in enumerate(units) if _hit_names(ocr_fold(unit), names)]
+    if not hit_idx:
+        if _hit_names(ocr_fold(titulo), names):
+            return titulo[:280]
+        return ""
+
+    ranges: list[list[int]] = []
+    n = len(units)
+    for i in hit_idx:
+        pad_after = 2 if len(units[i].split()) < 10 else 1
+        lo = max(0, i - 1)
+        hi = min(n, i + 1 + pad_after)
+        if ranges and lo <= ranges[-1][1]:
+            ranges[-1][1] = max(ranges[-1][1], hi)
+        else:
+            ranges.append([lo, hi])
+
+    blocks = [" ".join(units[lo:hi]).strip() for lo, hi in ranges]
+    text = "\n".join(b for b in blocks if b)
+    if titulo and _hit_names(ocr_fold(titulo), names):
+        if ocr_fold(titulo) not in ocr_fold(text):
+            text = f"{titulo}.\n{text}"
+    if max_chars and len(text) > max_chars:
+        text = text[:max_chars].rsplit(" ", 1)[0]
+    return text.strip()

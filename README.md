@@ -1,28 +1,33 @@
-# Tono y subtema por marca (Streamlit)
+# Tono, tema y subtema por marca (Streamlit)
 
-App para clasificar **tono** y **subtema** de noticias anclados a una **marca**,
-sus **alias** y **voceros** (no al sentimiento general de la nota).
+App para clasificar **tono**, **tema** y **subtema** de noticias anclados a una
+**marca**, sus **alias** y **voceros** (no al sentimiento general de la nota).
 
-Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON y, después,
-agrupa en local títulos o resúmenes parecidos (incluyendo errores típicos de
-OCR). Dentro de cada grupo —y entre filas que ya compartan el mismo subtema—
-el tono es **Positivo-first**: si alguna mención es Positivo, el grupo queda
-Positivo.
+Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON. El tono y el
+subtema se deciden sobre **pasajes** del `CuerpoEs` (ventanas alrededor de cada
+mención de marca / alias / voceros), con el título como apoyo. Después agrupa
+en local títulos o cuerpos parecidos (OCR) y, aparte, agrupa subtemas
+parecidos en un `tema_AI` más general. Dentro de cada grupo de noticia —y entre
+filas que ya compartan el mismo subtema— el tono es **Positivo-first**.
 
 Pensada para analistas de medios en Colombia. El archivo de entrada es un
-`.xlsx` de menciones; la salida es el mismo Excel con `tono_AI` y `subtema_AI`.
+`.xlsx` de menciones; la salida es el mismo Excel con `tono_AI`, `tema_AI` y
+`subtema_AI` (en ese orden).
 
 ## Qué hace
 
 1. Pides la clave de acceso (`APP_PASSWORD`)
 2. Subes un `.xlsx` (primero, en la columna principal)
 3. Eliges las columnas de **Título** y **cuerpo** (`CuerpoEs` se prefiere;
-   `Resumen` sirve si no hay cuerpo)
+   `Resumen` sirve si no hay cuerpo). El cuerpo puede ir **completo**, con
+   saltos de línea.
 4. Indicas marca, alias, voceros y ajustes **debajo** del archivo (no en
    una barra lateral)
-5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`) y `subtema_AI`
+5. Extrae pasajes de mención, genera `tono_AI`
+   (`Positivo` | `Negativo` | `Neutro`), `tema_AI` y `subtema_AI`
 6. Ves un resumen compacto (conteo de tono, tiempo, tokens y costo) y
-   descargas el Excel. No hay tablas de vista previa.
+   descargas el Excel **justo debajo del progreso**. No hay tablas de vista
+   previa.
 
 ## Secrets (Streamlit Cloud)
 
@@ -64,7 +69,9 @@ El código está en [johnathanacortesd/grokotono_jc](https://github.com/johnatha
 5. Pega los secrets `OPENAI_API_KEY` y `APP_PASSWORD`.
 6. Deploy.
 
-En la app, el tema claro/oscuro de Streamlit (Settings) usa acento cian tipo X/Grok.
+Tema claro: fondo limpio con acento **naranja**. Oscuro: negro profundo y
+naranja (energía tipo Grok/X, acento de marca naranja). En Settings de
+Streamlit se cambia claro/oscuro.
 
 ## Uso local
 
@@ -86,21 +93,30 @@ python3 -m unittest tests.test_postprocess -v
 
 ## Reglas (resumen)
 
-- **Positivo** si el foco (marca / alias / voceros) es agente de una gestión o
-  logro aunque el texto no traiga adjetivos: *la Universidad entregó…*,
-  *avanzó la obra…*, *lanzó el programa…*, rankings, becas, convenios.
+- Se lee el **CuerpoEs completo** (los saltos de línea son válidos). El
+  clasificador no usa el artículo entero como sentimiento: extrae **pasajes**
+  con oraciones/párrafos alrededor de cada hit de marca, alias o vocero.
+- **Tono y subtema** salen de esos pasajes; el **título** es apoyo.
+- Si no hay pasajes de mención → **Neutro**, salvo que el título evalúe
+  claramente al foco.
+- **Positivo** si el foco es agente de un **encuentro, evento, gestión,
+  entrega, lanzamiento, avance o compromiso**, aunque el texto no traiga
+  adjetivos: *la Universidad entregó…*, *realizó un encuentro…*, *avanzó la
+  obra…*, *lanzó el programa…*, rankings, becas, convenios.
 - **Negativo** si la crítica o la queja apunta al foco.
-- **Neutro** solo si no hay vínculo evaluativo (sede/escenario, o la historia
-  es de otro). No uses Neutro para gestiones «solo descriptivas» del foco.
+- **Neutro** si solo es sede/escenario, o la historia es de otro. No uses
+  Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema:** frase nominal de **3 a 5 palabras** que condensa el ángulo
-  de la nota a partir del **cuerpo completo** (preferir **CuerpoEs**; se
-  unen los saltos de línea de maquetación y se lee un tramo sustancial,
-  no solo la primera línea). Sentence case; se conservan siglas. **No
-  menciones la marca** en el subtema. No copies el título ni la primera
-  línea del cuerpo.
-- Noticias iguales o parecidas (título **o** cuerpo, con OCR) → mismo
-  subtema y mismo tono. Si alguna es Positivo, el grupo queda Positivo.
+- **Subtema:** frase nominal de **3 a 5 palabras** a partir de los pasajes.
+  Sentence case; se conservan siglas. **No menciones la marca.** No copies el
+  título ni la primera línea del cuerpo. Noticias iguales o parecidas (OCR)
+  → mismo subtema y mismo tono; **Positivo** gana.
+- **Tema (`tema_AI`):** más amplio que el subtema. Subtemas iguales o
+  parecidos quedan con el **mismo** tema. Si un subtema no tiene hermanos,
+  igual recibe un tema específico un poco más general (p. ej. subtema
+  «Entrega de becas de sostenimiento» → tema «Becas y apoyos estudiantiles»).
+  Español de Colombia, sentence case, corto (~2 a 5 palabras), sin relleno
+  de marca.
 
 ## Estructura
 
@@ -116,6 +132,7 @@ src/
   io_xlsx.py
   normalize.py
   prompts.py
+  tema.py
 tests/
   test_postprocess.py
 ```
