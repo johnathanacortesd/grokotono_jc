@@ -19,6 +19,7 @@ from src.normalize import (
     clean_subtema,
     extract_brand_passages,
     infer_focus_tono,
+    normalize_body_text,
 )
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
 from src.tema import assign_temas
@@ -26,6 +27,7 @@ from src.tema import assign_temas
 ProgressFn = Callable[[float, str], None]
 
 DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
+BODY_MAX_CHARS = 7000
 PASSAGE_MAX_CHARS = 4000
 
 # Tarifas configurables gpt-4.1-nano (USD por 1 millón de tokens).
@@ -168,7 +170,7 @@ def _draft_row(
     sub = clean_subtema(
         str(raw.get("subtema") or raw.get("sub_tema") or raw.get("subtema_AI") or ""),
         titulo=titulo,
-        resumen=source or resumen,
+        resumen=resumen or source,
         marca=marca,
         aliases=aliases,
     )
@@ -176,10 +178,13 @@ def _draft_row(
         hinted = infer_focus_tono(titulo, "", marca, aliases, voceros)
         tono = hinted if hinted in {"Positivo", "Negativo"} else "Neutro"
         return tono, sub
-    if tono == "Neutro":
-        hinted = infer_focus_tono(titulo, passages, marca, aliases, voceros)
-        if hinted in {"Positivo", "Negativo"}:
-            tono = hinted
+    hinted = infer_focus_tono(titulo, passages, marca, aliases, voceros)
+    # El modelo a veces pinta el tema (desempleo, crimen…) como Negativo:
+    # solo se conserva si la crítica apunta al FOCO.
+    if tono == "Negativo" and hinted != "Negativo":
+        tono = hinted if hinted == "Positivo" else "Neutro"
+    elif tono == "Neutro" and hinted in {"Positivo", "Negativo"}:
+        tono = hinted
     return tono, sub
 
 
@@ -220,6 +225,7 @@ def classify_rows(
         for i in chunk_ids:
             titulo = as_text(titles[i])
             cuerpo_raw = as_text(resumenes[i])
+            cuerpo = normalize_body_text(cuerpo_raw, max_chars=BODY_MAX_CHARS)
             pasajes = extract_brand_passages(
                 titulo, cuerpo_raw, marca, aliases, voceros, max_chars=PASSAGE_MAX_CHARS
             )
@@ -228,6 +234,7 @@ def classify_rows(
                     "id": i,
                     "titulo": titulo[:280],
                     "pasajes": pasajes,
+                    "resumen": cuerpo,
                 }
             )
         lo, hi = chunk_ids[0] + 1, chunk_ids[-1] + 1

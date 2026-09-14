@@ -18,6 +18,7 @@ from src.normalize import (
     focus_names,
     fold_text,
     infer_focus_tono,
+    looks_like_body_extract,
     mentions_target,
     name_variants,
     normalize_body_text,
@@ -298,11 +299,13 @@ class ClassifyPipelineTests(unittest.TestCase):
                 batch_size=10,
             )
         pasajes = captured["item"]["pasajes"]
-        self.assertNotIn("resumen", captured["item"])
+        self.assertIn("resumen", captured["item"])
         self.assertIn("encuentro", pasajes.lower())
         self.assertIn("Universidad de Antioquia", pasajes)
         self.assertNotEqual(pasajes.strip().split("\n")[0], "Lead corto de la nota.")
         self.assertLess(len(pasajes), len(cuerpo))
+        self.assertIn("encuentro", captured["item"]["resumen"].lower())
+        self.assertIn("clima", captured["item"]["resumen"].lower())
         self.assertEqual(tonos[0], "Positivo")
         self.assertTrue(temas[0])
 
@@ -487,7 +490,6 @@ class TonoHeuristicaTests(unittest.TestCase):
 class PromptTests(unittest.TestCase):
     def test_prompt_biases_gestion_to_positivo(self):
         self.assertIn("Si el FOCO HACE la gestión", SYSTEM_PROMPT)
-        self.assertIn("NEUTRO — úsalo POCO", SYSTEM_PROMPT)
         self.assertIn("3 a 5 palabras", SYSTEM_PROMPT)
         self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
         self.assertIn("PASAJES DEL FOCO", SYSTEM_PROMPT)
@@ -496,16 +498,21 @@ class PromptTests(unittest.TestCase):
         self.assertIn("eventos", low)
         self.assertIn("compromisos", low)
         self.assertIn("lanzamientos", low)
+        self.assertIn("colaboración", low)
+        self.assertIn("extracto", low)
+        self.assertIn("etiqueta", low)
         self.assertNotIn("Ante duda entre Positivo y Neutro, o entre Negativo y Neutro, elige Neutro", SYSTEM_PROMPT)
         user = build_user_prompt(
-            [{"id": 0, "titulo": "Nota", "pasajes": "La UdeA realizó un encuentro."}],
+            [{"id": 0, "titulo": "Nota", "pasajes": "La UdeA realizó un encuentro.", "resumen": "Cuerpo largo de la nota."}],
             marca="Universidad de Antioquia",
             aliases=["UdeA"],
             voceros=[],
         )
         self.assertIn("PASAJES DEL FOCO", user)
         self.assertIn("Encuentros, eventos, gestiones", user)
-        self.assertNotIn("CUERPO (CuerpoEs o Resumen; texto completo", user)
+        self.assertIn("CUERPO (CuerpoEs o Resumen; para entender el SUBTEMA", user)
+        self.assertIn("con la colaboración de", user.lower())
+        self.assertIn("no extracto", user.lower())
 
 
 class CostTests(unittest.TestCase):
@@ -691,6 +698,138 @@ class TemaGroupingTests(unittest.TestCase):
         self.assertEqual(out["tono_AI"].iloc[0], "Positivo")
         self.assertEqual(out["tema_AI"].iloc[0], "Becas y apoyos estudiantiles")
         self.assertTrue(out["subtema_AI"].iloc[0])
+
+
+UNINORTE = "Universidad del Norte"
+UNINORTE_ALIASES = ["Uninorte"]
+DESEMPLEO_TITULO = "Desempleo juvenil en Barranquilla llega al 18,8 %"
+DESEMPLEO_EXTRACT = (
+    "Así lo revela un informe de Goyn Barranquilla y NuestraBarranquilla, "
+    "elaborado con la colaboración de la Universidad del Norte, la "
+    "Universidad Simón Bolívar y Fundesarrollo"
+)
+DESEMPLEO_CUERPO = (
+    "El desempleo de los jóvenes en el distrito alcanzó el 18,8 por ciento.\n\n"
+    + DESEMPLEO_EXTRACT
+    + "."
+)
+
+
+class CollaboratorTonoTests(unittest.TestCase):
+    def test_university_collaborator_on_unemployment_study_is_not_negativo(self):
+        hinted = infer_focus_tono(
+            DESEMPLEO_TITULO,
+            DESEMPLEO_CUERPO,
+            UNINORTE,
+            UNINORTE_ALIASES,
+            [],
+        )
+        self.assertNotEqual(hinted, "Negativo")
+        self.assertIn(hinted, {None, "Positivo"})
+
+        from src.classify import _draft_row
+
+        tono, sub = _draft_row(
+            {
+                "tono": "Negativo",
+                "subtema": DESEMPLEO_EXTRACT,
+            },
+            DESEMPLEO_TITULO,
+            DESEMPLEO_CUERPO,
+            UNINORTE,
+            UNINORTE_ALIASES,
+            [],
+        )
+        self.assertNotEqual(tono, "Negativo")
+        self.assertIn(tono, {"Neutro", "Positivo"})
+        self.assertGreaterEqual(len(sub.split()), 3)
+        self.assertLessEqual(len(sub.split()), 5)
+        self.assertFalse(looks_like_body_extract(sub, DESEMPLEO_TITULO, DESEMPLEO_CUERPO))
+        folded = fold_text(sub)
+        self.assertNotIn("norte", folded)
+        self.assertNotIn("uninorte", folded)
+
+    def test_pipeline_keeps_collaborator_out_of_negativo(self):
+        def fake_batch(client, items, **kwargs):
+            return {
+                items[0]["id"]: {
+                    "id": items[0]["id"],
+                    "tono": "Negativo",
+                    "subtema": DESEMPLEO_EXTRACT,
+                }
+            }
+
+        with patch("src.classify.OpenAI"), patch(
+            "src.classify.classify_batch", side_effect=fake_batch
+        ):
+            tonos, subs, _temas, _stats = classify_rows(
+                [DESEMPLEO_TITULO],
+                [DESEMPLEO_CUERPO],
+                marca=UNINORTE,
+                aliases=UNINORTE_ALIASES,
+                voceros=[],
+                api_key="test",
+                batch_size=10,
+            )
+        self.assertNotEqual(tonos[0], "Negativo")
+        self.assertIn(tonos[0], {"Neutro", "Positivo"})
+        self.assertLessEqual(len(subs[0].split()), 5)
+        self.assertFalse(
+            looks_like_body_extract(subs[0], DESEMPLEO_TITULO, DESEMPLEO_CUERPO)
+        )
+
+    def test_praise_of_collaborator_can_be_positivo(self):
+        cuerpo = (
+            "El informe sobre desempleo juvenil exaltó el rol de la "
+            "Universidad del Norte en la medición."
+        )
+        self.assertEqual(
+            infer_focus_tono(
+                DESEMPLEO_TITULO,
+                cuerpo,
+                UNINORTE,
+                UNINORTE_ALIASES,
+                [],
+            ),
+            "Positivo",
+        )
+
+
+class SubtemaExtractTests(unittest.TestCase):
+    def test_rejects_long_body_extract_and_brand_stuffing(self):
+        self.assertGreater(len(DESEMPLEO_EXTRACT.split()), 8)
+        self.assertTrue(
+            looks_like_body_extract(DESEMPLEO_EXTRACT, DESEMPLEO_TITULO, DESEMPLEO_CUERPO)
+        )
+        out = clean_subtema(
+            DESEMPLEO_EXTRACT,
+            titulo=DESEMPLEO_TITULO,
+            resumen=DESEMPLEO_CUERPO,
+            marca=UNINORTE,
+            aliases=UNINORTE_ALIASES,
+        )
+        self.assertGreaterEqual(len(out.split()), 3)
+        self.assertLessEqual(len(out.split()), 5)
+        self.assertLessEqual(len(out.split()), 8)
+        self.assertFalse(
+            looks_like_body_extract(out, DESEMPLEO_TITULO, DESEMPLEO_CUERPO)
+        )
+        self.assertFalse(same_folded_phrase(out, DESEMPLEO_TITULO))
+        self.assertFalse(
+            same_folded_phrase(out, first_content_line(DESEMPLEO_CUERPO))
+        )
+        folded = fold_text(out)
+        self.assertNotIn("norte", folded)
+        self.assertNotIn("uninorte", folded)
+        self.assertNotIn("goyn", folded)
+
+    def test_prompt_forbids_extract_subtema(self):
+        low = SYSTEM_PROMPT.lower()
+        self.assertIn("extracto", low)
+        self.assertIn("3 a 5 palabras", low)
+        self.assertIn("no menciones la marca", low)
+        self.assertIn("etiqueta", low)
+        self.assertIn("colaboración", low)
 
 
 if __name__ == "__main__":

@@ -3,10 +3,12 @@
 App para clasificar **tono**, **tema** y **subtema** de noticias anclados a una
 **marca**, sus **alias** y **voceros** (no al sentimiento general de la nota).
 
-Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON. El tono y el
-subtema se deciden sobre **pasajes** del `CuerpoEs` (ventanas alrededor de cada
-mención de marca / alias / voceros), con el título como apoyo. Después agrupa
-en local títulos o cuerpos parecidos (OCR) y, aparte, agrupa subtemas
+Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON. El **tono**
+se decide sobre **pasajes** del `CuerpoEs` (ventanas alrededor de cada mención
+de marca / alias / voceros): es un juicio sobre la **marca**, no sobre el
+tema de la noticia. El **subtema** es una **frase resumen** analítica de 3 a 5
+palabras (etiqueta de clasificación, **no extracto** del cuerpo). Después
+agrupa en local títulos o cuerpos parecidos (OCR) y, aparte, agrupa subtemas
 parecidos en un `tema_AI` más general. Dentro de cada grupo de noticia —y entre
 filas que ya compartan el mismo subtema— el tono es **Positivo-first**.
 
@@ -94,23 +96,28 @@ python3 -m unittest tests.test_postprocess -v
 ## Reglas (resumen)
 
 - Se lee el **CuerpoEs completo** (los saltos de línea son válidos). El
-  clasificador no usa el artículo entero como sentimiento: extrae **pasajes**
-  con oraciones/párrafos alrededor de cada hit de marca, alias o vocero.
-- **Tono y subtema** salen de esos pasajes; el **título** es apoyo.
+  clasificador extrae **pasajes** con oraciones/párrafos alrededor de cada hit
+  de marca, alias o vocero para decidir el **tono**.
+- **Tono = marca**, no el sentimiento del tema (desempleo, crimen, inflación).
+  Colaboración / coautoría / «con la colaboración de [marca]» en un estudio
+  sin crítica → **Neutro** (o Positivo si se exalta el rol). Nunca Negativo
+  solo porque las cifras del problema sean malas.
 - Si no hay pasajes de mención → **Neutro**, salvo que el título evalúe
   claramente al foco.
 - **Positivo** si el foco es agente de un **encuentro, evento, gestión,
   entrega, lanzamiento, avance o compromiso**, aunque el texto no traiga
   adjetivos: *la Universidad entregó…*, *realizó un encuentro…*, *avanzó la
   obra…*, *lanzó el programa…*, rankings, becas, convenios.
-- **Negativo** si la crítica o la queja apunta al foco.
-- **Neutro** si solo es sede/escenario, o la historia es de otro. No uses
-  Neutro para gestiones «solo descriptivas» del foco.
+- **Negativo** solo si la crítica o la queja apunta al foco.
+- **Neutro** si solo es sede/escenario, la historia es de otro, o el foco
+  aparece como colaborador de un informe ajeno. No uses Neutro para gestiones
+  «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema:** frase nominal de **3 a 5 palabras** a partir de los pasajes.
-  Sentence case; se conservan siglas. **No menciones la marca.** No copies el
-  título ni la primera línea del cuerpo. Noticias iguales o parecidas (OCR)
-  → mismo subtema y mismo tono; **Positivo** gana.
+- **Subtema:** frase resumen analítica de **3 a 5 palabras** (etiqueta, **no
+  extracto** ni cita del CuerpoEs), a partir del título + cuerpo. Sentence
+  case; se conservan siglas. **No menciones la marca.** No copies el título
+  ni la primera línea del cuerpo. Noticias iguales o parecidas (OCR) → mismo
+  subtema y mismo tono; **Positivo** gana.
 - **Tema (`tema_AI`):** más amplio que el subtema. Subtemas iguales o
   parecidos quedan con el **mismo** tema. Si un subtema no tiene hermanos,
   igual recibe un tema específico un poco más general (p. ej. subtema

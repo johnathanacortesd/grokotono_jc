@@ -11,13 +11,13 @@ FOCO = MARCA PRINCIPAL + todos sus ALIAS + VOCEROS PROPIOS. Son la misma entidad
 Trata igual el nombre largo, el nombre corto, la sigla, apodos y el vocero listado.
 Ejemplo: «Universidad de Antioquia», «U. de Antioquia», «UdeA» y el rector listado = mismo FOCO.
 
-FUENTE PRINCIPAL
-El TONO y el SUBTEMA se deciden PRIMARIO a partir de los PASAJES DEL FOCO
-(ventanas de oraciones/párrafos alrededor de cada mención de marca, alias o
-voceros) y, como apoyo, del TÍTULO.
-NO uses el sentimiento general de la historia, ni de un sector, ni de un
-territorio. Si el cuerpo es largo, ignora lo que no esté en los pasajes ni
-en el título.
+FUENTE
+El TONO se decide SOLO por cómo los PASAJES DEL FOCO (ventanas alrededor de
+marca, alias o voceros) TRATAN AL FOCO. No uses el sentimiento del tema social
+(desempleo, crimen, inflación, pobreza, suicidio, etc.).
+El SUBTEMA es una ETIQUETA ANALÍTICA corta del ÁNGULO de la noticia, a partir
+del TÍTULO + CUERPO (los pasajes son solo contexto). NO es un extracto, cita,
+recorte ni collage del CuerpoEs ni de los pasajes.
 Si NO hay pasajes de mención → tono Neutro, SALVO que el TÍTULO evalúe
 claramente al FOCO (gestión, encuentro, evento, crítica).
 
@@ -34,42 +34,55 @@ Cuentan SIEMPRE como Positivo (son gestiones del FOCO, no Neutro):
   «realizó un encuentro…», «adquirió el compromiso de…», «participó en el
   evento…», «firmó el convenio…», «inauguró…», «aprobó recursos…»
 - logros: rankings, acreditación, becas, infraestructura, programas,
-  investigación, graduaciones, trabajo con comunidad, alianzas
+  investigación propia, graduaciones, trabajo con comunidad, alianzas
+- exaltación o elogio del rol del FOCO (aunque el tema de fondo sea duro)
 Si el FOCO HACE la gestión, el encuentro, el evento, la entrega o el
 compromiso, el tono es Positivo. No pidas adjetivos para etiquetar.
 
-NEGATIVO — crítica, queja, denuncia, sanción, protesta, retraso atribuido o
-evaluación negativa DIRIGIDA al FOCO (marca, alias o voceros). El FOCO es el
-señalado, no un tercero.
+NEGATIVO — SOLO crítica, queja, denuncia, sanción, protesta, retraso atribuido
+o evaluación negativa DIRIGIDA al FOCO (marca, alias o voceros). El FOCO es el
+señalado, no un tercero. NUNCA marques Negativo porque el tema de la noticia
+sea socialmente malo (desempleo alto, crimen, inflación) si eso no ataca al FOCO.
 
-NEUTRO — úsalo POCO. Solo cuando NO hay vínculo evaluativo con el FOCO:
+NEUTRO — úsalo cuando NO hay vínculo evaluativo con el FOCO:
 - mención de sede o escenario («el foro se realizó en la Universidad»)
 - la historia es de otra persona o entidad; el FOCO aparece de fondo o como dato
 - listado incidental sin gestión ni juicio
 - no hay pasajes de mención y el título tampoco evalúa al FOCO
+- COLABORACIÓN / COAUTORÍA / participación en un estudio o informe sin crítica
+  ni elogio: «con la colaboración de [marca]», «en coautoría con», «participó
+  en el estudio». Default Neutro. Positivo SOLO si se exalta el rol del FOCO.
+  Nunca Negativo por las cifras o el problema que el estudio describe.
 NO uses Neutro para encuentros, eventos, gestiones, entregas, lanzamientos,
 avances o compromisos del FOCO por ser «solo descriptivos».
 Un informe del FOCO sobre un problema ajeno puede ser Neutro; si el FOCO
 aporta solución o anuncia gestión propia, es Positivo.
 
 Ante duda Positivo vs Neutro: si el FOCO es agente de encuentro, evento,
-gestión, logro o acto oficial → Positivo.
+gestión, logro o acto oficial → Positivo. Si solo colabora en un estudio
+ajeno sin elogio → Neutro.
 Ante duda Negativo vs Neutro: si la crítica no apunta al FOCO → Neutro;
-si apunta al FOCO → Negativo.
+si apunta al FOCO → Negativo. El tema social NO desempata hacia Negativo.
 
 SUBTEMA
 Frase nominal CORTA y completa (típicamente 3 a 5 palabras; nunca larga)
-en español colombiano que condensa el ÁNGULO del hecho a partir de los
-PASAJES DEL FOCO (y el título como apoyo). No es un collage, no es un
-recorte del título y no es la primera línea del cuerpo.
+en español colombiano que condensa el ÁNGULO del hecho. Es una ETIQUETA de
+clasificación, no un recorte del texto.
 - 3 a 5 palabras. Bien: "Entrega de becas de sostenimiento". Mal: una
-  oración larga o un titular reescrito.
+  oración larga, un titular reescrito o un pasaje pegado del CuerpoEs.
+- NO es extracto, cita ni fragmento reciclado del CuerpoEs, de los pasajes
+  ni de la primera línea. Inventa una frase lógica condensada del sentido
+  (título + cuerpo). Si una oración del cuerpo sirve de inspiración, NOMINALÍZALA;
+  no la copies.
 - NO menciones la MARCA, ni alias, ni el nombre de la institución en el
   subtema. El subtema es el tema/ángulo de la noticia, no una etiqueta de
   marca. Mal: "Universidad de Antioquia entrega becas". Bien: "Entrega de
   becas de sostenimiento".
+- Analiza TODO el CUERPO que se te entrega (varios párrafos). Los saltos de
+  línea son de maquetación: NO los trates como fin de oración ni copies la
+  primera línea antes de un \\n.
 - El subtema DEBE ser distinto del TÍTULO y distinto de la primera línea
-  del cuerpo. Inventa una frase lógica condensada del sentido de los pasajes.
+  del cuerpo.
 - Oración nominal coherente: sujeto + complemento. Bien: "Inicio de clases
   con PAE". Mal: "Clases PAE Sucre niños".
 - Mayúscula solo en la primera letra (sentence case). Conserva siglas (PAE,
@@ -174,6 +187,11 @@ EJEMPLOS = [
         "subtema": "Informe sobre intentos de suicidio en jóvenes",
         "tono": "Neutro",
     },
+    {
+        "titulo": "Desempleo juvenil en Barranquilla llega al 18,8 % según un nuevo informe",
+        "subtema": "Informe de desempleo juvenil",
+        "tono": "Neutro",
+    },
 ]
 
 
@@ -193,12 +211,14 @@ def build_user_prompt(
         f"VOCEROS PROPIOS (misma entidad que la marca): {vocero_txt}",
         "",
         "Recuerda: nombre largo, nombre corto, sigla y voceros listados = el mismo FOCO.",
-        "Decide TONO y SUBTEMA sobre todo con los PASAJES DEL FOCO; el TÍTULO es apoyo.",
+        "TONO: júzgalo SOLO por cómo los PASAJES DEL FOCO tratan al FOCO, no por el sentimiento del tema (desempleo, crimen, inflación…).",
+        "Colaboración / coautoría / «con la colaboración de [marca]» / participación en un estudio sin crítica → Neutro (Positivo solo si hay elogio del FOCO). Nunca Negativo por el tema.",
         "Si no hay pasajes de mención → Neutro, salvo que el título evalúe al FOCO.",
         "Encuentros, eventos, gestiones, entregas, lanzamientos, avances y compromisos del FOCO → Positivo.",
-        "SUBTEMA: 3 a 5 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.",
+        "SUBTEMA: frase-etiqueta analítica de 3 a 5 palabras (no extracto ni cita del CuerpoEs), sin marca, distinta del título y de la primera línea.",
+        "El subtema resume el ÁNGULO de la noticia (título + cuerpo). No pegues oraciones ni fragmentos.",
         "",
-        "EJEMPLOS (misma regla de tono y de subtema; el subtema NUNCA nombra la marca):",
+        "EJEMPLOS (misma regla de tono y de subtema; el subtema NUNCA nombra la marca ni copia el cuerpo):",
     ]
     for e in EJEMPLOS:
         lineas.append(f'  TITULAR: {e["titulo"]}')
@@ -206,12 +226,13 @@ def build_user_prompt(
     lineas += ["", "NOTAS A ETIQUETAR:"]
     for it in items:
         lineas.append(f"NOTA id={it['id']}")
-        lineas.append(f"TÍTULO (apoyo): {it['titulo']}")
+        lineas.append(f"TÍTULO: {it['titulo']}")
         pasajes = it.get("pasajes") or ""
         if pasajes:
             lineas.append(
-                "PASAJES DEL FOCO (fuente PRINCIPAL de tono y subtema; "
-                "ventanas alrededor de marca/alias/voceros):\n"
+                "PASAJES DEL FOCO (solo para el TONO: cómo se trata al FOCO, "
+                "no la valencia del tema social; ventanas alrededor de "
+                "marca/alias/voceros):\n"
                 f"{pasajes}"
             )
         else:
@@ -220,10 +241,16 @@ def build_user_prompt(
                 "Tono Neutro, salvo que el TÍTULO evalúe claramente al FOCO "
                 "(gestión, encuentro, evento, crítica)."
             )
+        lineas.append(
+            "CUERPO (CuerpoEs o Resumen; para entender el SUBTEMA. Analiza el "
+            "ángulo y devuelve una etiqueta de 3 a 5 palabras; NO copies "
+            "oraciones, citas ni extractos):\n"
+            f"{it.get('resumen', '')}"
+        )
         lineas.append("")
     lineas.append(
         "Devuelve JSON: {\"resultados\":[{\"id\":<id>,\"tono\":\"Positivo|Negativo|Neutro\","
-        "\"subtema\":\"<frase nominal de 3 a 5 palabras, sin marca>\"}]}"
+        "\"subtema\":\"<frase-etiqueta de 3 a 5 palabras, sin marca, no extracto>\"}]}"
     )
     if candidatos:
         lineas.append("")
