@@ -3,14 +3,11 @@
 App para clasificar **tono** y **subtema** de noticias anclados a una **marca**,
 sus **alias** y **voceros** (no al sentimiento general de la nota).
 
-Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON. El **tono**
-se decide sobre **pasajes** del `CuerpoEs` (ventanas alrededor de cada mención
-de marca / alias / voceros): es un juicio sobre la **marca**, no sobre el
-tema de la noticia. El **subtema** es una frase nominal analítica de 3 a 5
-palabras a partir del título + cuerpo completo (no un recorte de los pasajes).
-Después agrupa en local títulos o cuerpos parecidos (OCR). Dentro de cada
-grupo de noticia —y entre filas que ya compartan el mismo subtema— el tono es
-**Positivo-first**.
+Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON y, después,
+agrupa en local títulos o resúmenes parecidos (incluyendo errores típicos de
+OCR). Dentro de cada grupo —y entre filas que ya compartan el mismo subtema—
+el tono es **Positivo-first**: si alguna mención es Positivo, el grupo queda
+Positivo.
 
 Pensada para analistas de medios en Colombia. El archivo de entrada es un
 `.xlsx` de menciones; la salida es el mismo Excel con `tono_AI` y `subtema_AI`.
@@ -20,15 +17,12 @@ Pensada para analistas de medios en Colombia. El archivo de entrada es un
 1. Pides la clave de acceso (`APP_PASSWORD`)
 2. Subes un `.xlsx` (primero, en la columna principal)
 3. Eliges las columnas de **Título** y **cuerpo** (`CuerpoEs` se prefiere;
-   `Resumen` sirve si no hay cuerpo). El cuerpo puede ir **completo**, con
-   saltos de línea.
+   `Resumen` sirve si no hay cuerpo)
 4. Indicas marca, alias, voceros y ajustes **debajo** del archivo (no en
    una barra lateral)
-5. Extrae pasajes de mención para el tono, genera `tono_AI`
-   (`Positivo` | `Negativo` | `Neutro`) y `subtema_AI`
+5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`) y `subtema_AI`
 6. Ves un resumen compacto (conteo de tono, tiempo, tokens y costo) y
-   descargas el Excel **justo debajo del progreso**. No hay tablas de vista
-   previa.
+   descargas el Excel. No hay tablas de vista previa.
 
 ## Secrets (Streamlit Cloud)
 
@@ -70,9 +64,7 @@ El código está en [johnathanacortesd/grokotono_jc](https://github.com/johnatha
 5. Pega los secrets `OPENAI_API_KEY` y `APP_PASSWORD`.
 6. Deploy.
 
-Tema claro: fondo limpio con acento **naranja**. Oscuro: negro profundo y
-naranja (energía tipo Grok/X, acento de marca naranja). En Settings de
-Streamlit se cambia claro/oscuro.
+En la app, el tema claro/oscuro de Streamlit (Settings) usa acento cian tipo X/Grok.
 
 ## Uso local
 
@@ -94,30 +86,19 @@ python3 -m unittest tests.test_postprocess -v
 
 ## Reglas (resumen)
 
-- Se lee el **CuerpoEs completo** (los saltos de línea son válidos). El
-  clasificador extrae **pasajes** con oraciones/párrafos alrededor de cada hit
-  de marca, alias o vocero para decidir el **tono**.
-- **Tono = marca**, no el sentimiento del tema (desempleo, crimen, inflación).
-  Colaboración / coautoría / «con la colaboración de [marca]» en un estudio
-  sin crítica → **Neutro** (o Positivo si se exalta el rol). Nunca Negativo
-  solo porque las cifras del problema sean malas.
-- Si no hay pasajes de mención → **Neutro**, salvo que el título evalúe
-  claramente al foco.
-- **Positivo** si el foco es agente de un **encuentro, evento, gestión,
-  entrega, lanzamiento, avance o compromiso**, aunque el texto no traiga
-  adjetivos: *la Universidad entregó…*, *realizó un encuentro…*, *avanzó la
-  obra…*, *lanzó el programa…*, rankings, becas, convenios.
-- **Negativo** solo si la crítica o la queja apunta al foco.
-- **Neutro** si solo es sede/escenario, la historia es de otro, o el foco
-  aparece como colaborador de un informe ajeno. No uses Neutro para gestiones
-  «solo descriptivas» del foco.
+- **Positivo** si el foco (marca / alias / voceros) es agente de una gestión o
+  logro aunque el texto no traiga adjetivos: *la Universidad entregó…*,
+  *avanzó la obra…*, *lanzó el programa…*, rankings, becas, convenios.
+- **Negativo** si la crítica o la queja apunta al foco.
+- **Neutro** solo si no hay vínculo evaluativo (sede/escenario, o la historia
+  es de otro). No uses Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
 - **Subtema:** frase nominal de **3 a 5 palabras** que condensa el ángulo
-  de la nota a partir del **título + cuerpo completo** (preferir **CuerpoEs**;
-  se unen los saltos de línea de maquetación y se lee un tramo sustancial,
+  de la nota a partir del **cuerpo completo** (preferir **CuerpoEs**; se
+  unen los saltos de línea de maquetación y se lee un tramo sustancial,
   no solo la primera línea). Sentence case; se conservan siglas. **No
-  menciones la marca.** No copies el título ni la primera línea del cuerpo.
-  El subtema **no** se arma con los pasajes de mención.
+  menciones la marca** en el subtema. No copies el título ni la primera
+  línea del cuerpo.
 - Noticias iguales o parecidas (título **o** cuerpo, con OCR) → mismo
   subtema y mismo tono. Si alguna es Positivo, el grupo queda Positivo.
 

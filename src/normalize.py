@@ -52,19 +52,11 @@ def strip_controls(s: str) -> str:
     return "".join(ch for ch in as_text(s) if (ch >= " " or ch in "\n\t") and ch not in "\ufffe\uffff")
 
 
-def prepare_article(text: str) -> str:
-    """CuerpoEs completo: conserva párrafos; limpia controles y saltos de carro."""
+def normalize_body_text(text: str, max_chars: int | None = DEFAULT_BODY_CHARS) -> str:
+    """Une saltos de maquetación y toma un tramo sustancial del artículo."""
     t = strip_controls(as_text(text))
     t = t.replace("\r\n", "\n").replace("\r", "\n")
     t = re.sub(r"[\t\xa0]+", " ", t)
-    t = re.sub(r"\n{3,}", "\n\n", t)
-    t = re.sub(r"[ ]{2,}", " ", t)
-    return t.strip()
-
-
-def normalize_body_text(text: str, max_chars: int | None = DEFAULT_BODY_CHARS) -> str:
-    """Une saltos de maquetación y toma un tramo sustancial del artículo."""
-    t = prepare_article(text)
     t = re.sub(r"\n+", " ", t)
     t = re.sub(r" {2,}", " ", t).strip()
     if max_chars and max_chars > 0 and len(t) > max_chars:
@@ -222,26 +214,14 @@ GESTION_VERBS = {
     "instalo", "instala",
     "doto", "dota",
     "beco", "beca",
-    "participo", "participa", "participaron",
-    "organizo", "organiza", "organizaron",
-    "convoco", "convoca", "convocaron",
-    "encabezo", "encabeza",
-    "presidio", "preside",
-    "dialogo", "dialoga",
-    "compromete", "comprometio", "comprometieron",
-    "reunio", "reune", "reunieron",
 }
 
 GESTION_NOUNS = {
     "convenio", "convenios", "acuerdo", "acuerdos", "alianza", "alianzas",
     "ranking", "acreditacion", "beca", "becas", "infraestructura",
     "inversion", "inversiones", "programa", "programas", "obra", "obras",
-    "graduacion", "reconocimiento", "reconocimientos", "gestion", "gestiones",
+    "graduacion", "reconocimiento", "reconocimientos", "gestion",
     "campus", "laboratorios", "investigacion", "convocatoria",
-    "encuentro", "encuentros", "evento", "eventos", "compromiso", "compromisos",
-    "entrega", "entregas", "lanzamiento", "lanzamientos", "avance", "avances",
-    "reunion", "reuniones", "ceremonia", "jornada", "feria", "visita", "visitas",
-    "conversatorio", "pacto", "pactos", "dialogo", "mesa",
 }
 
 NEG_HEADS = {
@@ -249,60 +229,17 @@ NEG_HEADS = {
     "queja", "quejas", "reclamo", "reclaman", "reclamaron",
     "protesta", "protestan", "protestaron", "manifestacion",
     "sancion", "sancionan", "sanciono", "sancionaron",
-    "investigan",
+    "investigan", "investigacion",
     "corrupcion", "irregularidades", "escandalo",
     "demanda", "demandan", "demandaron",
     "critica", "critican", "criticas",
     "cuestionan", "cuestiono",
+    "senalan", "senalo",
     "rechazo", "rechazan",
     "polemica",
     "retraso", "retrasos", "falla", "fallas",
     "abandono", "negligencia",
 }
-
-# Colaboración / coautoría en un estudio: el FOCO no es el evaluado.
-COLLAB_PHRASES = (
-    "con la colaboracion de",
-    "en colaboracion con",
-    "colaboracion de",
-    "colaboracion entre",
-    "en coautoria",
-    "coautoria con",
-    "coautoria de",
-    "con el apoyo de",
-    "con el respaldo de",
-    "elaborado con la colaboracion",
-    "elaborado con colaboracion",
-    "participo en el estudio",
-    "participaron en el estudio",
-    "participacion en el estudio",
-    "participo en el informe",
-    "participaron en el informe",
-    "participo en la investigacion",
-    "participaron en la investigacion",
-)
-
-STUDY_NOUNS = {
-    "estudio", "informe", "encuesta", "medicion", "investigacion",
-}
-
-PRAISE_CUES = {
-    "destaco", "destaca", "destacaron",
-    "exalto", "exalta",
-    "elogio", "elogia",
-    "agradecio", "agradece",
-    "reconocio", "reconoce",
-    "protagonismo", "liderazgo",
-}
-
-DIRECTED_NEG_CUES = (
-    "contra ",
-    "en contra",
-    "denuncia a",
-    "quejas contra",
-    "investigan a",
-    "bajo investigacion",
-)
 
 LOCATIVE = {"en", "desde", "hacia", "sede", "escenario", "instalaciones"}
 LOCATIVE_BEFORE = re.compile(
@@ -428,55 +365,6 @@ def _split_sentences(text: str) -> list[str]:
     return [s.replace("·", ".").strip() for s in re.split(r"(?<=[.!?])\s+", protected) if s.strip()]
 
 
-def _split_paragraphs(text: str) -> list[str]:
-    """Párrafos del CuerpoEs; líneas cortas de maquetación se unen."""
-    article = prepare_article(text)
-    if not article:
-        return []
-    paras = [p.strip() for p in re.split(r"\n\s*\n+", article) if p.strip()]
-    if len(paras) <= 1 and "\n" in article:
-        lines = [ln.strip() for ln in article.split("\n") if ln.strip()]
-        if not lines:
-            return []
-        if max(len(ln) for ln in lines) < 90:
-            return [" ".join(lines)]
-        return lines
-    return paras or ([article] if article else [])
-
-
-def _passage_units(text: str) -> list[str]:
-    """Oraciones por párrafo: unidades para ventanas alrededor de la marca."""
-    units: list[str] = []
-    for para in _split_paragraphs(text):
-        sents = _split_sentences(para)
-        if sents:
-            units.extend(sents)
-        elif para.strip():
-            units.append(para.strip())
-    return units
-
-
-def _is_collaborator_sentence(folded: str, wset: set[str]) -> bool:
-    if any(p in folded for p in COLLAB_PHRASES):
-        return True
-    if any(stem in folded for stem in ("participo", "participa", "participaron", "participacion")):
-        if wset & STUDY_NOUNS:
-            return True
-    return False
-
-
-def _has_praise(folded: str, wset: set[str]) -> bool:
-    if wset & PRAISE_CUES:
-        return True
-    return "papel de" in folded or "rol de" in folded or "exalt" in folded
-
-
-def _has_directed_critica(folded: str, wset: set[str]) -> bool:
-    if any(cue in folded for cue in DIRECTED_NEG_CUES):
-        return True
-    return bool(wset & NEG_HEADS)
-
-
 def infer_focus_tono(
     titulo: str,
     resumen: str,
@@ -486,9 +374,6 @@ def infer_focus_tono(
 ) -> str | None:
     """Heurística local: Positivo si el foco es agente de gestión/logro;
     Negativo si la crítica apunta al foco; None si no hay vínculo evaluativo.
-
-    Se juzga por oración (no por la bolsa de palabras de toda la nota), para
-    no pintar el sentimiento del tema (desempleo, crimen…) sobre la marca.
     """
     names = focus_names(marca, aliases, voceros)
     blob = ocr_fold(f"{titulo}. {resumen}")
@@ -497,18 +382,15 @@ def infer_focus_tono(
 
     text = as_text(titulo) + ". " + as_text(resumen)
     sentences = _split_sentences(text)
-    units: list[str] = []
-    title = as_text(titulo)
-    if title:
-        units.append(title)
+    units = [text]
     for sent in sentences:
-        if sent and ocr_fold(sent) not in {ocr_fold(u) for u in units}:
+        if sent and sent not in units:
             units.append(sent)
+    if as_text(titulo) and ocr_fold(as_text(titulo)) not in {ocr_fold(u) for u in units}:
+        units.insert(1, as_text(titulo))
 
     saw_gestion = False
     saw_critica = False
-    saw_collab = False
-    saw_praise = False
     locative_only = True
 
     for sent in units:
@@ -518,33 +400,23 @@ def infer_focus_tono(
             continue
         words = folded.split()
         wset = set(words)
-        entity_is_locative = any(_entity_is_locative(folded, ocr_fold(n)) for n in hits)
-        collab = _is_collaborator_sentence(folded, wset)
-        critica = _has_directed_critica(folded, wset)
-        praise = _has_praise(folded, wset)
         has_gestion = bool(wset & GESTION_VERBS) or bool(wset & GESTION_NOUNS)
-
-        if not entity_is_locative:
-            locative_only = False
-        if collab:
-            saw_collab = True
-            if praise:
-                saw_praise = True
-            if critica and any(cue in folded for cue in DIRECTED_NEG_CUES):
-                saw_critica = True
-            continue
-        if critica:
+        has_neg = bool(wset & NEG_HEADS) or any(
+            cue in folded for cue in ("contra ", "en contra", "denuncia a", "quejas contra")
+        )
+        entity_is_locative = any(_entity_is_locative(folded, ocr_fold(n)) for n in hits)
+        if has_neg:
             saw_critica = True
+            locative_only = False
         if has_gestion and not entity_is_locative:
             saw_gestion = True
-        if praise:
-            saw_praise = True
+            locative_only = False
+        if not entity_is_locative:
+            locative_only = False
 
     if saw_critica:
         return "Negativo"
-    if saw_collab and not saw_praise and not saw_gestion:
-        return None
-    if saw_praise or saw_gestion:
+    if saw_gestion:
         return "Positivo"
     if locative_only:
         return None
@@ -856,46 +728,30 @@ def extract_brand_passages(
     marca: str,
     aliases: Sequence[str],
     voceros: Sequence[str],
-    max_chars: int = 4000,
+    max_chars: int = 2500,
 ) -> str:
-    """Ventanas de oraciones/párrafos alrededor de marca, alias y voceros.
-
-    Recorre el CuerpoEs completo (saltos de línea permitidos). No se queda
-    en la primera línea ni recorta el artículo antes de buscar menciones.
-    Esas ventanas alimentan el TONO (cómo se trata al FOCO), no el subtema.
-    """
+    """Oraciones que mencionan marca/alias/voceros: son las que deciden el tono."""
     titulo = as_text(titulo)
-    article = prepare_article(resumen)
+    body = normalize_body_text(resumen, max_chars=DEFAULT_BODY_CHARS)
     names = focus_names(marca, aliases, voceros)
-    if not article:
-        return titulo[:280] if _hit_names(ocr_fold(titulo), names) else ""
-
-    units = _passage_units(article)
-    if not units:
-        units = [normalize_body_text(article, max_chars=None)] if article else []
-
-    hit_idx = [i for i, unit in enumerate(units) if _hit_names(ocr_fold(unit), names)]
-    if not hit_idx:
-        if _hit_names(ocr_fold(titulo), names):
-            return titulo[:280]
-        return ""
-
-    ranges: list[list[int]] = []
-    n = len(units)
-    for i in hit_idx:
-        pad_after = 2 if len(units[i].split()) < 10 else 1
-        lo = max(0, i - 1)
-        hi = min(n, i + 1 + pad_after)
-        if ranges and lo <= ranges[-1][1]:
-            ranges[-1][1] = max(ranges[-1][1], hi)
-        else:
-            ranges.append([lo, hi])
-
-    blocks = [" ".join(units[lo:hi]).strip() for lo, hi in ranges]
-    text = "\n".join(b for b in blocks if b)
-    if titulo and _hit_names(ocr_fold(titulo), names):
-        if ocr_fold(titulo) not in ocr_fold(text):
-            text = f"{titulo}.\n{text}"
-    if max_chars and len(text) > max_chars:
-        text = text[:max_chars].rsplit(" ", 1)[0]
-    return text.strip()
+    if not body:
+        return titulo[:220] if _hit_names(ocr_fold(titulo), names) else ""
+    sentences = _split_sentences(body)
+    picked = []
+    for i, sent in enumerate(sentences):
+        nf = ocr_fold(sent)
+        if _hit_names(nf, names):
+            block = sent
+            if len(sent.split()) < 12 and i + 1 < len(sentences):
+                block = f"{sent} {sentences[i + 1]}"
+            if block not in picked:
+                picked.append(block)
+    if picked:
+        text = " ".join(picked)
+        if titulo and ocr_fold(titulo) not in ocr_fold(text):
+            if _hit_names(ocr_fold(titulo), names):
+                text = f"{titulo}. {text}"
+        return text[:max_chars]
+    if _hit_names(ocr_fold(f"{titulo} {body}"), names):
+        return f"{titulo}. {body[:1200]}".strip(" .")[:max_chars]
+    return ""
