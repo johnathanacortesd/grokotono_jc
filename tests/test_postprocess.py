@@ -152,9 +152,10 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(out, phrase)
         self.assertEqual(len(out.split()), 6)
 
-    def test_clean_subtema_keeps_cocha_molina_celebro(self):
+    def test_clean_subtema_rejects_cocha_molina_celebro(self):
+        raw = "Cocha Molina celebró"
         out = clean_subtema(
-            "Cocha Molina celebró",
+            raw,
             titulo="Otro titular de un acto protocolario en el campus",
             resumen=(
                 "La rectoría adelantó un acto protocolario con la comunidad académica.\n"
@@ -163,8 +164,10 @@ class NormalizeTests(unittest.TestCase):
             marca="Universidad de Antioquia",
             aliases=["UdeA"],
         )
-        self.assertEqual(out, "Cocha Molina celebró")
-        self.assertEqual(len(out.split()), 3)
+        self.assertNotEqual(ocr_fold(out), ocr_fold(raw))
+        self.assertNotEqual(fold_text(out.split()[-1]), "celebro")
+        self.assertLessEqual(len(out.split()), 6)
+        self.assertGreaterEqual(len(out.split()), 3)
 
     def test_tono_canonical(self):
         self.assertEqual(canonicalize_tono("POSITIVO"), "Positivo")
@@ -825,10 +828,83 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
         unusable = inspect.getsource(_phrase_is_unusable)
         self.assertIn("looks_like_collage", unusable)
         self.assertIn("looks_like_title_or_lead", unusable)
+        self.assertIn("looks_like_truncated_clause", unusable)
+        self.assertIn("looks_like_body_extract", unusable)
         self.assertNotIn("extracto", unusable)
         self.assertNotIn("looks_like_extract", unusable)
         self.assertIn("strip_brand_mentions", inspect.getsource(_finalize_subtema))
         self.assertIn("_source_tokens", inspect.getsource(_fallback_subtema))
+        self.assertIn("_nominal_from_title", inspect.getsource(_fallback_subtema))
+        self.assertIn("_fallback_usable", inspect.getsource(_fallback_subtema))
+
+
+class IncompleteExtractTests(unittest.TestCase):
+    marca = UNINORTE
+    aliases = UNINORTE_ALIASES
+    eco_titulo = "Estudiantes de Uninorte participan en Eco Challenge STEM"
+    eco_cuerpo = (
+        "Durante el encuentro los estudiantes tienen la oportunidad de "
+        "presentar prototipos de energía solar.\n"
+        "El equipo de ingeniería representó a la institución en la competencia."
+    )
+
+    def test_rejects_dangling_finite_verb_extract(self):
+        raw = "Durante el encuentro los estudiantes tienen"
+        out = clean_subtema(
+            raw,
+            titulo=self.eco_titulo,
+            resumen=self.eco_cuerpo,
+            marca=self.marca,
+            aliases=self.aliases,
+        )
+        self.assertTrue(out)
+        self.assertNotEqual(fold_text(out.split()[-1]), "tienen")
+        self.assertNotEqual(ocr_fold(out), ocr_fold(raw))
+        self.assertFalse(ocr_fold(out).startswith("durante"))
+        self.assertLessEqual(len(out.split()), 6)
+        self.assertGreaterEqual(len(out.split()), 3)
+
+    def test_eco_challenge_falls_back_to_nominal_not_title_dump(self):
+        out = clean_subtema(
+            "Durante el encuentro los estudiantes tienen",
+            titulo=self.eco_titulo,
+            resumen=self.eco_cuerpo,
+            marca=self.marca,
+            aliases=self.aliases,
+        )
+        folded = fold_text(out)
+        self.assertIn("participacion", folded)
+        self.assertIn("eco", folded)
+        self.assertIn("challenge", folded)
+        self.assertNotIn("tienen", folded)
+        self.assertNotIn("durante", folded)
+        self.assertFalse(same_folded_phrase(out, self.eco_titulo))
+        self.assertNotIn("estudiantes participan", folded)
+        self.assertLessEqual(len(out.split()), 6)
+        self.assertGreaterEqual(len(out.split()), 3)
+
+    def test_keeps_model_nominal_eco_challenge(self):
+        good = "Participación en Eco Challenge"
+        out = clean_subtema(
+            good,
+            titulo=self.eco_titulo,
+            resumen=self.eco_cuerpo,
+            marca=self.marca,
+            aliases=self.aliases,
+        )
+        self.assertEqual(ocr_fold(out), ocr_fold(good))
+
+    def test_subtema_prompt_only_differs_in_word_ceiling(self):
+        start = SYSTEM_PROMPT.index("SUBTEMA\n")
+        end = SYSTEM_PROMPT.index("Responde ÚNICAMENTE")
+        block = SYSTEM_PROMPT[start:end]
+        self.assertEqual(
+            block.replace("3 a 6 palabras", "3 a 5 palabras"),
+            FROZEN_SUBTEMA_PROMPT_18B79F6,
+        )
+        self.assertNotIn("no recortes a mitad de sentido", block)
+        self.assertNotIn("extracto del cuerpo", block)
+        self.assertNotIn(" Prefiere una frase corta completa", block)
 
 
 class TemaGroupingTests(unittest.TestCase):
