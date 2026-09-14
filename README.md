@@ -42,8 +42,10 @@ el repositorio.
 
 ## Deploy en Streamlit Cloud
 
-1. Publica este repo en GitHub.
-2. En [share.streamlit.io](https://share.streamlit.io) → **New app**.
+El código está en [johnathanacortesd/grokotono_jc](https://github.com/johnathanacortesd/grokotono_jc). No hay que crear otro repositorio: en Streamlit Cloud apunta a este.
+
+1. En [share.streamlit.io](https://share.streamlit.io) → **New app**.
+2. Repository: `johnathanacortesd/grokotono_jc`. Branch: `main` (o la rama del PR si estás probando el cambio).
 3. **Main file path:** `app.py`
 4. En *Advanced settings* elige **Python 3.12**.
 5. Pega el secret `OPENAI_API_KEY`.
