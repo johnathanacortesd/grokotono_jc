@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import os
 
 import pandas as pd
@@ -17,7 +18,7 @@ from src.classify import (
 )
 from src.io_xlsx import (
     dataframe_to_xlsx_bytes,
-    guess_resumen_column,
+    guess_cuerpo_column,
     guess_title_column,
     list_sheets,
     read_xlsx,
@@ -27,22 +28,25 @@ from src.normalize import parse_name_list
 st.set_page_config(
     page_title="grokotono",
     page_icon="✦",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="collapsed",
 )
 
 _APP_CSS = """
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
-html, body, .stApp, [data-testid="stAppViewContainer"] {
+html, body, .stApp, [data-testid="stAppViewContainer"],
+[data-testid="stMarkdownContainer"], .stMarkdown, label, p, h1, h2, h3 {
   font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif !important;
 }
 
 .block-container {
-  padding-top: 1.4rem !important;
-  padding-bottom: 3rem !important;
-  max-width: 880px !important;
+  padding-top: 0.7rem !important;
+  padding-bottom: 3.2rem !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  max-width: 598px !important;
 }
 
 footer, .stDeployButton, [data-testid="stDecoration"],
@@ -52,82 +56,170 @@ footer, .stDeployButton, [data-testid="stDecoration"],
 }
 header[data-testid="stHeader"] { background: transparent !important; }
 
-h1, h2, h3, p, label, .stMarkdown, .stCaption,
-[data-testid="stSidebar"] * {
-  font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
+section[data-testid="stSidebar"],
+[data-testid="stSidebar"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
 }
-h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; }
 
-[data-testid="stSidebar"] {
-  border-right: 1px solid var(--st-border-color, var(--border-color, transparent));
+h1, h2, h3 {
+  letter-spacing: -0.045em;
+  font-weight: 800 !important;
+  line-height: 1.15 !important;
 }
 
-.gx-brand { margin: 0 0 1.25rem 0; }
+.gx-brand { margin: 0 0 0.35rem 0; }
 .gx-mark {
-  font-size: 1.65rem;
-  font-weight: 700;
-  letter-spacing: -0.06em;
-  line-height: 1.1;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.07em;
+  line-height: 1.05;
 }
-.gx-mark span { color: var(--st-primary-color, #1d9bf0); }
+.gx-mark span { color: #1d9bf0; }
 .gx-tag {
-  margin: 0.35rem 0 0 0;
-  opacity: 0.65;
-  font-size: 0.92rem;
+  margin: 0.2rem 0 0.85rem 0;
+  color: inherit;
+  opacity: 0.62;
+  font-size: 0.86rem;
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
-.gx-card {
-  background: var(--st-secondary-background-color, var(--secondary-background-color, transparent));
-  border: 1px solid var(--st-border-color, var(--border-color, rgba(127,127,127,0.2)));
-  border-radius: 16px;
-  padding: 1rem 1.1rem;
-  margin: 0.6rem 0 1rem 0;
+.gx-kicker {
+  margin: 1.15rem 0 0.4rem 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #1d9bf0;
+  line-height: 1.2;
 }
-.gx-card p { opacity: 0.8; font-size: 0.92rem; margin: 0; }
+.gx-lead {
+  margin: 0 0 0.85rem 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  opacity: 0.78;
+}
+
+[data-testid="stForm"] {
+  background: var(--st-secondary-background-color, var(--secondary-background-color, transparent));
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(29,155,240,0.22)));
+  border-radius: 16px !important;
+  padding: 0.85rem 1rem 1rem 1rem !important;
+  margin: 0.35rem 0 1.1rem 0 !important;
+  box-shadow: none !important;
+}
+
+[data-testid="stFileUploader"] {
+  background: var(--st-secondary-background-color, var(--secondary-background-color, transparent));
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(29,155,240,0.22)));
+  border-radius: 16px !important;
+  padding: 0.35rem 0.55rem 0.55rem 0.55rem !important;
+  margin: 0 0 0.85rem 0 !important;
+}
+[data-testid="stFileUploader"] section {
+  position: relative !important;
+  z-index: 0 !important;
+}
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploadDropzone"] {
+  position: relative !important;
+  z-index: 0 !important;
+  border-radius: 12px !important;
+}
 
 [data-testid="stMetric"] {
   background: var(--st-secondary-background-color, var(--secondary-background-color, transparent));
-  border: 1px solid var(--st-border-color, var(--border-color, rgba(127,127,127,0.2)));
-  border-radius: 16px;
-  padding: 0.85rem 1rem;
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(29,155,240,0.22)));
+  border-radius: 14px;
+  padding: 0.7rem 0.8rem;
 }
-[data-testid="stMetricLabel"] { opacity: 0.7; font-weight: 600 !important; }
-[data-testid="stMetricValue"] { font-weight: 700 !important; letter-spacing: -0.04em; }
+[data-testid="stMetricLabel"] { opacity: 0.68; font-weight: 650 !important; font-size: 0.78rem !important; }
+[data-testid="stMetricValue"] { font-weight: 800 !important; letter-spacing: -0.045em; }
 
+div[data-testid="stProgress"] {
+  margin: 0.15rem 0 0.55rem 0 !important;
+  padding: 0 !important;
+}
 div[data-testid="stProgress"] > div,
 div[data-testid="stProgressBar"] > div {
   border-radius: 999px !important;
-  height: 10px !important;
+  height: 8px !important;
+  overflow: hidden !important;
+}
+div[data-testid="stProgress"] p,
+div[data-testid="stProgress"] span,
+div[data-testid="stProgress"] [data-testid="stMarkdownContainer"],
+div[data-testid="stProgressBar"] p,
+[data-testid="stProgress"] label {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  position: static !important;
 }
 div[data-testid="stProgress"] > div > div,
 div[data-testid="stProgressBar"] > div > div,
 div[role="progressbar"] > div {
-  background: linear-gradient(90deg, #1d9bf0, #7dd3fc) !important;
+  background: linear-gradient(90deg, #1d9bf0, #8ecdf8) !important;
   border-radius: 999px !important;
-  transition: width 0.45s ease !important;
+  transition: width 0.4s ease !important;
+}
+
+.gx-progress-status {
+  display: block;
+  margin: 0 0 0.15rem 0;
+  padding: 0.15rem 0 0.05rem 0;
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+  opacity: 0.72;
 }
 
 .stButton > button {
   border-radius: 999px !important;
-  font-weight: 650 !important;
+  font-weight: 700 !important;
   letter-spacing: 0.01em;
+  min-height: 2.55rem !important;
 }
 .stButton > button[kind="primary"] {
-  background: var(--st-primary-color, #1d9bf0) !important;
+  background: #1d9bf0 !important;
   color: #fff !important;
   border: 0 !important;
 }
-
-[data-testid="stFileUploader"] {
-  border-radius: 16px !important;
+.stButton > button[kind="secondary"] {
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(127,127,127,0.35))) !important;
 }
+
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea,
 [data-testid="stSelectbox"] > div {
   border-radius: 12px !important;
 }
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus,
+[data-testid="stTextArea"] textarea:focus {
+  outline: 2px solid #1d9bf0 !important;
+  border-color: #1d9bf0 !important;
+  box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.22) !important;
+}
+
+div[data-testid="stExpander"] {
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(29,155,240,0.18)));
+  border-radius: 14px !important;
+  margin: 0 0 0.9rem 0 !important;
+}
+
+[data-testid="stCaption"] { opacity: 0.68; }
+
+.stAlert { border-radius: 14px !important; }
 </style>
 """
 
@@ -216,6 +308,10 @@ def brand_header() -> None:
     )
 
 
+def kicker(text: str) -> None:
+    st.markdown(f'<p class="gx-kicker">{html.escape(text)}</p>', unsafe_allow_html=True)
+
+
 def require_password() -> None:
     esperada = leer_secret("APP_PASSWORD")
     if not esperada:
@@ -233,12 +329,12 @@ def require_password() -> None:
 
     brand_header()
     st.markdown(
-        '<div class="gx-card"><p>Entra con la clave de la app para clasificar.</p></div>',
+        '<p class="gx-lead">Entra con la clave de la app para clasificar.</p>',
         unsafe_allow_html=True,
     )
-    with st.form("gate", clear_on_submit=False):
+    with st.form("gate", clear_on_submit=False, border=False, enter_to_submit=True):
         ingresada = st.text_input("Clave", type="password")
-        entrar = st.form_submit_button("Entrar", type="primary")
+        entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
     if entrar:
         if _clave_ok(ingresada, esperada):
             st.session_state["auth_ok"] = True
@@ -248,7 +344,8 @@ def require_password() -> None:
 
 
 def render_resultado(resultado: pd.DataFrame, stats: dict, archivo_nombre: str) -> None:
-    st.subheader("Listo")
+    kicker("Listo")
+    st.subheader("Clasificación")
     conteo = resultado["tono_AI"].value_counts().to_dict() if "tono_AI" in resultado.columns else {}
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Positivo", int(conteo.get("Positivo", 0)))
@@ -280,6 +377,7 @@ def render_resultado(resultado: pd.DataFrame, stats: dict, archivo_nombre: str) 
         file_name=f"{base}_tono_subtema.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
+        use_container_width=True,
     )
 
 
@@ -287,9 +385,13 @@ def main() -> None:
     inject_css()
     require_password()
     brand_header()
-    st.caption("Clasifica tono_AI y subtema_AI anclados al foco. No mide el sentimiento general de la nota.")
+    st.markdown(
+        '<p class="gx-lead">Clasifica tono_AI y subtema_AI anclados al foco. '
+        "No mide el sentimiento general de la nota.</p>",
+        unsafe_allow_html=True,
+    )
 
-    with st.expander("Regla de tono", expanded=False):
+    with st.expander("Regla de tono y subtema", expanded=False):
         st.markdown(
             """
 **El tono es un juicio sobre la marca, no sobre la historia.**
@@ -300,8 +402,9 @@ def main() -> None:
 - **Negativo** si la crítica o la queja apunta al foco.
 - **Neutro** solo si no hay vínculo evaluativo (sede, escenario, o la historia es de otro).
 
-El **subtema** es una frase nominal corta en español colombiano. Noticias parecidas
-(OCR incluido) quedan con el mismo subtema y tono; **Positivo** gana en el grupo.
+El **subtema** es una frase nominal de **3 a 5 palabras**, sin el nombre de la marca,
+distinta del título y de la primera línea del cuerpo. Prefiere la columna **CuerpoEs**.
+Noticias parecidas (OCR incluido) quedan con el mismo subtema y tono; **Positivo** gana.
             """
         )
 
@@ -315,40 +418,17 @@ El **subtema** es una frase nominal corta en español colombiano. Noticias parec
         )
         st.stop()
 
-    with st.sidebar:
-        st.markdown("**Foco**")
-        marca = st.text_input(
-            "Marca principal",
-            placeholder="Universidad de Antioquia",
-            help="Entidad sobre la que se juzga el tono.",
-        )
-        aliases_raw = st.text_area(
-            "Alias",
-            placeholder="UdeA\nU. de Antioquia\nla U",
-            help="Sigla, nombre corto u otras formas. Una por línea o separadas por coma.",
-        )
-        voceros_raw = st.text_area(
-            "Voceros propios (opcional)",
-            placeholder="John Jairo Arboleda Céspedes",
-            help="Personas cuya mención cuenta como mención de la marca.",
-        )
-        modelo = st.text_input("Modelo OpenAI", value=DEFAULT_MODEL)
-        lote = st.number_input("Tamaño de lote", min_value=1, max_value=25, value=10, step=1)
-        max_filas = st.number_input(
-            "Máximo de filas (0 = todas)",
-            min_value=0,
-            max_value=100_000,
-            value=0,
-            step=50,
-            help="Útil para una prueba corta antes de correr el archivo completo.",
-        )
+    kicker("Archivo")
+    uploaded = st.file_uploader(
+        "Excel de menciones (.xlsx)",
+        type=["xlsx"],
+        label_visibility="visible",
+    )
+    if uploaded is None:
+        st.caption("Sube el archivo. Después eliges columnas y el foco, en este mismo hilo.")
         if st.button("Cerrar sesión"):
             st.session_state["auth_ok"] = False
             st.rerun()
-
-    uploaded = st.file_uploader("Excel de menciones (.xlsx)", type=["xlsx"])
-    if uploaded is None:
-        st.info("Sube el archivo y elige las columnas de **Título** y **Resumen**.")
         return
 
     raw = uploaded.getvalue()
@@ -373,9 +453,10 @@ El **subtema** es una frase nominal corta en español colombiano. Noticias parec
         return
 
     cols = list(df.columns)
-    c1, c2 = st.columns(2)
+    kicker("Columnas")
     title_default = guess_title_column(cols) or cols[0]
-    resumen_default = guess_resumen_column(cols) or cols[min(1, len(cols) - 1)]
+    cuerpo_default = guess_cuerpo_column(cols) or cols[min(1, len(cols) - 1)]
+    c1, c2 = st.columns(2)
     with c1:
         title_col = st.selectbox(
             "Columna de Título",
@@ -383,69 +464,116 @@ El **subtema** es una frase nominal corta en español colombiano. Noticias parec
             index=cols.index(title_default) if title_default in cols else 0,
         )
     with c2:
-        resumen_col = st.selectbox(
-            "Columna de Resumen",
+        cuerpo_col = st.selectbox(
+            "Columna de cuerpo (CuerpoEs / Resumen)",
             cols,
-            index=cols.index(resumen_default) if resumen_default in cols else 0,
+            index=cols.index(cuerpo_default) if cuerpo_default in cols else 0,
+            help="Prefiere CuerpoEs (texto completo con saltos). Resumen sirve si no hay cuerpo.",
         )
-
     st.caption(f"{len(df)} filas · **{hoja}** · se conservan las columnas originales.")
 
-    if not marca.strip():
-        st.warning("Escribe la **marca principal** en la barra lateral.")
-        return
-
-    if st.button("Clasificar", type="primary"):
-        trabajo = df.copy()
-        if max_filas:
-            trabajo = trabajo.head(int(max_filas))
-        aliases = parse_name_list(aliases_raw)
-        voceros = parse_name_list(voceros_raw)
-        prog_box = st.container()
-        with prog_box:
-            barra = st.progress(0.0, text="Preparando lotes…")
-            estado = st.empty()
-
-        def on_progress(frac: float, msg: str) -> None:
-            barra.progress(min(max(frac, 0.0), 1.0), text=msg)
-            estado.caption(msg)
-
-        try:
-            resultado, stats = classify_dataframe(
-                trabajo,
-                title_col,
-                resumen_col,
-                marca=marca.strip(),
-                aliases=aliases,
-                voceros=voceros,
-                api_key=api_key,
-                model=modelo.strip() or DEFAULT_MODEL,
-                batch_size=int(lote),
-                progress=on_progress,
+    kicker("Foco y ajuste")
+    with st.form("foco_y_ajuste", clear_on_submit=False, border=False, enter_to_submit=False):
+        marca = st.text_input(
+            "Marca principal",
+            placeholder="Universidad de Antioquia",
+            help="Entidad sobre la que se juzga el tono. No va en el subtema.",
+        )
+        aliases_raw = st.text_area(
+            "Alias",
+            placeholder="UdeA\nU. de Antioquia\nla U",
+            help="Sigla, nombre corto u otras formas. Una por línea o separadas por coma.",
+            height=84,
+        )
+        voceros_raw = st.text_area(
+            "Voceros propios (opcional)",
+            placeholder="John Jairo Arboleda Céspedes",
+            help="Personas cuya mención cuenta como mención de la marca.",
+            height=72,
+        )
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            modelo = st.text_input("Modelo OpenAI", value=DEFAULT_MODEL)
+        with m2:
+            lote = st.number_input("Tamaño de lote", min_value=1, max_value=25, value=10, step=1)
+        with m3:
+            max_filas = st.number_input(
+                "Máximo de filas (0 = todas)",
+                min_value=0,
+                max_value=100_000,
+                value=0,
+                step=50,
+                help="Útil para una prueba corta antes de correr el archivo completo.",
             )
-        except Exception as exc:
-            barra.empty()
-            estado.empty()
-            st.error(f"Falló la clasificación: {exc}")
-            return
+        clasificar = st.form_submit_button("Clasificar", type="primary", use_container_width=True)
 
-        st.session_state["resultado"] = resultado
-        st.session_state["archivo_nombre"] = uploaded.name
-        st.session_state["stats"] = {
-            "elapsed_s": stats.elapsed_s,
-            "prompt_tokens": stats.prompt_tokens,
-            "completion_tokens": stats.completion_tokens,
-            "cost_input_usd": stats.cost_input_usd,
-            "cost_output_usd": stats.cost_output_usd,
-            "cost_total_usd": stats.cost_total_usd,
-        }
-        barra.progress(1.0, text="Clasificación terminada.")
-        estado.empty()
+    if clasificar:
+        if not marca.strip():
+            st.warning("Escribe la **marca principal** en el bloque de foco, debajo del archivo.")
+        else:
+            trabajo = df.copy()
+            if max_filas:
+                trabajo = trabajo.head(int(max_filas))
+            aliases = parse_name_list(aliases_raw)
+            voceros = parse_name_list(voceros_raw)
+            kicker("Progreso")
+            estado = st.empty()
+            estado.markdown(
+                '<p class="gx-progress-status">Preparando lotes…</p>',
+                unsafe_allow_html=True,
+            )
+            barra = st.progress(0.0)
+
+            def on_progress(frac: float, msg: str) -> None:
+                barra.progress(min(max(frac, 0.0), 1.0))
+                estado.markdown(
+                    f'<p class="gx-progress-status">{html.escape(msg)}</p>',
+                    unsafe_allow_html=True,
+                )
+
+            try:
+                resultado, stats = classify_dataframe(
+                    trabajo,
+                    title_col,
+                    cuerpo_col,
+                    marca=marca.strip(),
+                    aliases=aliases,
+                    voceros=voceros,
+                    api_key=api_key,
+                    model=modelo.strip() or DEFAULT_MODEL,
+                    batch_size=int(lote),
+                    progress=on_progress,
+                )
+            except Exception as exc:
+                barra.empty()
+                estado.empty()
+                st.error(f"Falló la clasificación: {exc}")
+                return
+
+            st.session_state["resultado"] = resultado
+            st.session_state["archivo_nombre"] = uploaded.name
+            st.session_state["stats"] = {
+                "elapsed_s": stats.elapsed_s,
+                "prompt_tokens": stats.prompt_tokens,
+                "completion_tokens": stats.completion_tokens,
+                "cost_input_usd": stats.cost_input_usd,
+                "cost_output_usd": stats.cost_output_usd,
+                "cost_total_usd": stats.cost_total_usd,
+            }
+            barra.progress(1.0)
+            estado.markdown(
+                '<p class="gx-progress-status">Clasificación terminada.</p>',
+                unsafe_allow_html=True,
+            )
 
     resultado = st.session_state.get("resultado")
     stats = st.session_state.get("stats") or {}
     if isinstance(resultado, pd.DataFrame) and not resultado.empty:
         render_resultado(resultado, stats, st.session_state.get("archivo_nombre") or uploaded.name)
+
+    if st.button("Cerrar sesión"):
+        st.session_state["auth_ok"] = False
+        st.rerun()
 
 
 if __name__ == "__main__":

@@ -16,13 +16,17 @@ TITLE_HINTS = (
     "titulos",
     "encabezado",
 )
-RESUMEN_HINTS = (
-    "resumen",
+# Preferir CuerpoEs (texto completo) sobre Resumen.
+CUERPO_HINTS = (
+    "cuerposes",
+    "cuerpo es",
+    "cuerpo_es",
+    "cuerpoes",
+    "cuerpo",
     "resumen - aclaracion",
     "resumen - aclaración",
     "resumen aclaracion",
-    "cuerpo",
-    "cuerposes",
+    "resumen",
     "contenido",
     "texto",
     "bajada",
@@ -34,6 +38,7 @@ RESUMEN_HINTS = (
     "síntesis",
     "noticia",
 )
+RESUMEN_HINTS = CUERPO_HINTS
 
 
 def list_sheets(data: bytes | BytesIO) -> list[str]:
@@ -70,14 +75,19 @@ def guess_title_column(columns: Sequence[str]) -> str | None:
     return guess_column(columns, TITLE_HINTS)
 
 
-def guess_resumen_column(columns: Sequence[str]) -> str | None:
-    guessed = guess_column(columns, RESUMEN_HINTS)
+def guess_cuerpo_column(columns: Sequence[str]) -> str | None:
+    """Prefiere CuerpoEs; si no está, Resumen u otras columnas de cuerpo."""
+    guessed = guess_column(columns, CUERPO_HINTS)
     title = guess_title_column(columns)
     if guessed and title and guessed == title:
         for c in columns:
             if c != title:
                 return c
     return guessed
+
+
+def guess_resumen_column(columns: Sequence[str]) -> str | None:
+    return guess_cuerpo_column(columns)
 
 
 def dataframe_to_xlsx_bytes(df: pd.DataFrame) -> bytes:

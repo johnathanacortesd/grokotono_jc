@@ -33,6 +33,11 @@ GENERIC_SUBTEMAS = {
     "información general", "cobertura informativa", "temas generales",
 }
 
+# Subtema: frase corta (3–5 palabras). El cuerpo se lee en tramo sustancial.
+MAX_SUBTEMA_WORDS = 5
+MIN_SUBTEMA_WORDS = 3
+DEFAULT_BODY_CHARS = 7000
+
 
 def as_text(value) -> str:
     if value is None:
@@ -45,6 +50,36 @@ def as_text(value) -> str:
 
 def strip_controls(s: str) -> str:
     return "".join(ch for ch in as_text(s) if (ch >= " " or ch in "\n\t") and ch not in "\ufffe\uffff")
+
+
+def normalize_body_text(text: str, max_chars: int | None = DEFAULT_BODY_CHARS) -> str:
+    """Une saltos de maquetación y toma un tramo sustancial del artículo."""
+    t = strip_controls(as_text(text))
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+    t = re.sub(r"[\t\xa0]+", " ", t)
+    t = re.sub(r"\n+", " ", t)
+    t = re.sub(r" {2,}", " ", t).strip()
+    if max_chars and max_chars > 0 and len(t) > max_chars:
+        cut = t[:max_chars]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        t = cut
+    return t
+
+
+def first_content_line(text: str) -> str:
+    """Primera línea del cuerpo antes de un salto, sin usarla como subtema."""
+    t = strip_controls(as_text(text)).replace("\r\n", "\n").replace("\r", "\n")
+    if not t:
+        return ""
+    return re.sub(r"\s+", " ", t.split("\n", 1)[0]).strip(" .;:-")
+
+
+def same_folded_phrase(a: str, b: str) -> bool:
+    fa, fb = ocr_fold(a), ocr_fold(b)
+    if not fa or not fb:
+        return False
+    return fa == fb
 
 
 def strip_accents(s: str) -> str:
@@ -322,12 +357,12 @@ def _hit_names(blob: str, names: Sequence[str]) -> list[str]:
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Parte oraciones sin romper siglas de una letra («U. de Antioquia»)."""
-    text = as_text(text)
+    """Parte oraciones reales; un salto de maquetación no cuenta como fin."""
+    text = normalize_body_text(text, max_chars=None)
     if not text:
         return []
     protected = re.sub(r"\b([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])\.(?=\s)", r"\1·", text)
-    return [s.replace("·", ".").strip() for s in re.split(r"(?<=[.!?\n;])\s+", protected) if s.strip()]
+    return [s.replace("·", ".").strip() for s in re.split(r"(?<=[.!?])\s+", protected) if s.strip()]
 
 
 def infer_focus_tono(
@@ -448,14 +483,80 @@ def looks_like_collage(phrase: str) -> bool:
 
 
 def looks_like_title_scrap(subtema: str, titulo: str) -> bool:
-    """True solo si el subtema es un recorte crudo del titular (no una síntesis)."""
+    """True si el subtema es un recorte crudo del titular (no una síntesis)."""
     if not subtema or not titulo:
         return False
     sw = ocr_fold(subtema).split()
     tw = ocr_fold(titulo).split()
-    if len(sw) >= 6 and tw[: len(sw)] == sw and len(tw) > len(sw) + 2:
+    if not sw or not tw:
+        return False
+    if tw[: len(sw)] == sw and len(tw) > len(sw) + 2 and len(sw) >= 4:
         return True
     return False
+
+
+def looks_like_title_or_lead(subtema: str, titulo: str, cuerpo: str) -> bool:
+    """El subtema no puede ser el título ni la primera línea del cuerpo."""
+    if not subtema:
+        return False
+    if same_folded_phrase(subtema, titulo):
+        return True
+    lead = first_content_line(cuerpo)
+    if lead and same_folded_phrase(subtema, lead):
+        return True
+    return looks_like_title_scrap(subtema, titulo)
+
+
+def strip_brand_mentions(
+    phrase: str,
+    marca: str,
+    aliases: Sequence[str] | None = None,
+) -> str:
+    """Quita marca y alias del subtema: el ángulo de la nota, no la etiqueta."""
+    words = [w for w in re.sub(r"\s+", " ", as_text(phrase)).split() if w]
+    if not words:
+        return ""
+    variants: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for item in [marca, *(aliases or [])]:
+        for v in name_variants(item) + [as_text(item)]:
+            fv = ocr_fold(v).split()
+            key = tuple(fv)
+            if not fv or key in seen:
+                continue
+            if len(fv) == 1 and (len(fv[0]) < 3 or fv[0] in ORG_HEADS):
+                continue
+            seen.add(key)
+            variants.append(fv)
+    variants.sort(key=len, reverse=True)
+    folded_words = [ocr_fold(w) for w in words]
+    drop = [False] * len(words)
+    for var in variants:
+        n = len(var)
+        i = 0
+        while i <= len(words) - n:
+            if folded_words[i : i + n] == var and not any(drop[i : i + n]):
+                for j in range(i, i + n):
+                    drop[j] = True
+                i += n
+            else:
+                i += 1
+    kept = [w for w, d in zip(words, drop) if not d]
+    while kept and fold_text(kept[0]) in DANGLING:
+        kept.pop(0)
+    while kept and fold_text(kept[0]) in ORG_HEADS:
+        kept.pop(0)
+        while kept and fold_text(kept[0]) in DANGLING:
+            kept.pop(0)
+    kept = strip_dangling(kept)
+    return sentence_case(" ".join(kept))
+
+
+def _clip_subtema_words(words: Sequence[str]) -> list[str]:
+    clipped = [w for w in words if w]
+    if len(clipped) > MAX_SUBTEMA_WORDS:
+        clipped = clipped[:MAX_SUBTEMA_WORDS]
+    return strip_dangling(clipped)
 
 
 def canonicalize_tono(raw: str) -> str:
@@ -472,45 +573,145 @@ def canonicalize_tono(raw: str) -> str:
     return mapping.get(t, "Neutro")
 
 
-def clean_subtema(raw: str, *, titulo: str = "", resumen: str = "", marca: str = "") -> str:
+def _phrase_is_unusable(phrase: str, titulo: str, cuerpo: str) -> bool:
+    if not phrase:
+        return True
+    if looks_like_collage(phrase) or looks_like_title_or_lead(phrase, titulo, cuerpo):
+        return True
+    return False
+
+
+def _finalize_subtema(
+    phrase: str,
+    *,
+    titulo: str,
+    resumen: str,
+    marca: str,
+    aliases: Sequence[str] | None,
+) -> str:
+    phrase = strip_brand_mentions(phrase, marca, aliases)
+    words = _clip_subtema_words(phrase.split())
+    return sentence_case(" ".join(words))
+
+
+def clean_subtema(
+    raw: str,
+    *,
+    titulo: str = "",
+    resumen: str = "",
+    marca: str = "",
+    aliases: Sequence[str] | None = None,
+) -> str:
     text = strip_controls(raw)
     text = re.sub(r"[\"'«»“”‘’]", "", text)
     text = re.sub(r"[:;|/\\]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" .-")
-    words = [w for w in text.split() if w]
-    if len(words) > 14:
-        words = words[:14]
-    words = strip_dangling(words)
-    phrase = sentence_case(" ".join(words))
-    if not phrase or looks_like_collage(phrase) or looks_like_title_scrap(phrase, titulo):
-        phrase = _fallback_subtema(resumen, titulo, marca)
-    words = strip_dangling(phrase.split())
-    phrase = sentence_case(" ".join(words))
+    phrase = _finalize_subtema(
+        " ".join(text.split()),
+        titulo=titulo,
+        resumen=resumen,
+        marca=marca,
+        aliases=aliases,
+    )
     brand_w = set(content_words(marca))
+    for alias in aliases or []:
+        brand_w |= set(content_words(alias))
     phrase_w = set(content_words(phrase))
-    if not phrase or (brand_w and phrase_w and phrase_w <= brand_w):
-        phrase = _fallback_subtema(resumen, titulo, marca)
+    needs_fallback = (
+        _phrase_is_unusable(phrase, titulo, resumen)
+        or len(phrase.split()) < MIN_SUBTEMA_WORDS
+        or (brand_w and phrase_w and phrase_w <= brand_w)
+    )
+    if needs_fallback:
+        phrase = _fallback_subtema(resumen, titulo, marca, aliases)
+        phrase = _finalize_subtema(
+            phrase, titulo=titulo, resumen=resumen, marca=marca, aliases=aliases
+        )
+    if _phrase_is_unusable(phrase, titulo, resumen):
+        alt = _fallback_subtema(resumen, titulo, marca, aliases, offset=4)
+        alt = _finalize_subtema(
+            alt, titulo=titulo, resumen=resumen, marca=marca, aliases=aliases
+        )
+        if alt and not _phrase_is_unusable(alt, titulo, resumen):
+            phrase = alt
     return phrase or "Hecho informativo"
 
 
-def _fallback_subtema(resumen: str, titulo: str, marca: str) -> str:
-    source = as_text(resumen) or as_text(titulo)
-    source = re.split(r"(?<=[.!?])\s+", source, maxsplit=1)[0]
-    source = re.sub(r"^(?:imagenes|en imagenes|fotos|video|en vivo)\s*\|\s*", "", source, flags=re.I)
-    words = re.sub(r"[,.;:!?¿¡\"'()\[\]{}]", " ", source).split()
-    skip = brand_tokens([marca])
+def _source_tokens(resumen: str, titulo: str) -> tuple[list[str], str]:
+    raw = as_text(resumen) or as_text(titulo)
+    lead = first_content_line(raw)
+    rest = ""
+    body_nl = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if "\n" in body_nl:
+        rest = body_nl.split("\n", 1)[1]
+    if len(ocr_fold(rest)) >= 24:
+        source = normalize_body_text(rest, max_chars=DEFAULT_BODY_CHARS)
+    else:
+        source = normalize_body_text(raw, max_chars=DEFAULT_BODY_CHARS)
+    source = re.sub(
+        r"^(?:imagenes|en imagenes|fotos|video|en vivo)\s*\|\s*",
+        "",
+        source,
+        flags=re.I,
+    )
+    tokens = re.sub(r"[,.;:!?¿¡\"'()\[\]{}]", " ", source).split()
+    return tokens, lead
+
+
+def _fallback_subtema(
+    resumen: str,
+    titulo: str,
+    marca: str,
+    aliases: Sequence[str] | None = None,
+    offset: int = 0,
+) -> str:
+    tokens, lead = _source_tokens(resumen, titulo)
+    skip = brand_tokens([marca], aliases or [])
+    avoid = {ocr_fold(titulo), ocr_fold(lead)} - {""}
+
+    def build(start: int) -> str:
+        kept: list[str] = []
+        i = max(0, start)
+        while i < len(tokens) and len(kept) < MAX_SUBTEMA_WORDS:
+            w = tokens[i]
+            i += 1
+            if fold_text(w) in skip and len(kept) == 0:
+                continue
+            kept.append(w)
+        kept = strip_dangling(kept)
+        while kept and fold_text(kept[0]) in DANGLING | ORG_HEADS:
+            kept.pop(0)
+            kept = strip_dangling(kept)
+        phrase = sentence_case(" ".join(kept))
+        return strip_brand_mentions(phrase, marca, aliases)
+
+    for start in (offset, offset + 3, offset + 6, 1, 5, 8):
+        phrase = build(start)
+        words = _clip_subtema_words(phrase.split())
+        phrase = sentence_case(" ".join(words))
+        if (
+            phrase
+            and len(phrase.split()) >= MIN_SUBTEMA_WORDS
+            and ocr_fold(phrase) not in avoid
+            and not looks_like_collage(phrase)
+            and not looks_like_title_scrap(phrase, titulo)
+        ):
+            return phrase
+
+    title_toks = re.sub(r"[,.;:!?¿¡\"']", " ", as_text(titulo)).split()
     kept = []
-    for w in words:
-        if fold_text(w) in skip and len(kept) == 0:
+    for w in title_toks:
+        if fold_text(w) in skip:
             continue
         kept.append(w)
-        if len(kept) >= 10:
+        if len(kept) >= MAX_SUBTEMA_WORDS:
             break
     kept = strip_dangling(kept)
-    phrase = sentence_case(" ".join(kept))
-    if looks_like_collage(phrase) or len(phrase.split()) < 3:
-        kept = strip_dangling(re.sub(r"[,.;:!?¿¡\"']", " ", as_text(titulo)).split()[:8])
-        phrase = sentence_case(" ".join(kept))
+    phrase = strip_brand_mentions(sentence_case(" ".join(kept)), marca, aliases)
+    words = _clip_subtema_words(phrase.split())
+    phrase = sentence_case(" ".join(words))
+    if phrase and ocr_fold(phrase) not in avoid:
+        return phrase
     return phrase
 
 
@@ -527,15 +728,15 @@ def extract_brand_passages(
     marca: str,
     aliases: Sequence[str],
     voceros: Sequence[str],
-    max_chars: int = 1600,
+    max_chars: int = 2500,
 ) -> str:
     """Oraciones que mencionan marca/alias/voceros: son las que deciden el tono."""
     titulo = as_text(titulo)
-    resumen = as_text(resumen)
+    body = normalize_body_text(resumen, max_chars=DEFAULT_BODY_CHARS)
     names = focus_names(marca, aliases, voceros)
-    if not resumen:
+    if not body:
         return titulo[:220] if _hit_names(ocr_fold(titulo), names) else ""
-    sentences = _split_sentences(resumen)
+    sentences = _split_sentences(body)
     picked = []
     for i, sent in enumerate(sentences):
         nf = ocr_fold(sent)
@@ -551,6 +752,6 @@ def extract_brand_passages(
             if _hit_names(ocr_fold(titulo), names):
                 text = f"{titulo}. {text}"
         return text[:max_chars]
-    if _hit_names(ocr_fold(f"{titulo} {resumen}"), names):
-        return f"{titulo}. {resumen[:400]}".strip(" .")[:max_chars]
+    if _hit_names(ocr_fold(f"{titulo} {body}"), names):
+        return f"{titulo}. {body[:1200]}".strip(" .")[:max_chars]
     return ""

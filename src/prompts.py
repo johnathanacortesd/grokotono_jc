@@ -45,19 +45,33 @@ Ante duda Negativo vs Neutro: si la crítica no apunta al FOCO → Neutro;
 si apunta al FOCO → Negativo.
 
 SUBTEMA
-Frase nominal corta y completa en español colombiano que condensa el HECHO del
-Resumen (no un collage de palabras clave, no un recorte del título).
-- Oración nominal coherente: sujeto + complemento. Bien: "Inicio de clases con
-  alimentación escolar". Mal: "Clases PAE Sucre niños".
-- Mayúscula solo en la primera letra (sentence case). Conserva siglas (PAE, ANI,
-  EPS, DANE, UdeA) y nombres propios.
-- No termines en preposición ni nexo (de, la, el, en, con, por, para, y, del,
-  ha, porque…).
-- No copies ni recortes el titular. Sintetiza el resumen.
-- No empieces con verbo conjugado. Bien: "Sanción a exsecretario de Educación".
+Frase nominal CORTA y completa (típicamente 3 a 5 palabras; nunca larga)
+en español colombiano que condensa el ÁNGULO del hecho a partir del CUERPO
+completo (CuerpoEs o Resumen). No es un collage, no es un recorte del título
+y no es la primera línea del cuerpo.
+- 3 a 5 palabras. Bien: "Entrega de becas de sostenimiento". Mal: una
+  oración larga o un titular reescrito.
+- NO menciones la MARCA, ni alias, ni el nombre de la institución en el
+  subtema. El subtema es el tema/ángulo de la noticia, no una etiqueta de
+  marca. Mal: "Universidad de Antioquia entrega becas". Bien: "Entrega de
+  becas de sostenimiento".
+- Analiza TODO el CUERPO que se te entrega (varios párrafos). Los saltos de línea
+  son de maquetación: NO los trates como fin de oración ni copies la
+  primera línea antes de un \\n.
+- El subtema DEBE ser distinto del TÍTULO y distinto de la primera línea
+  del cuerpo. Inventa una frase lógica condensada del sentido completo.
+- Oración nominal coherente: sujeto + complemento. Bien: "Inicio de clases
+  con PAE". Mal: "Clases PAE Sucre niños".
+- Mayúscula solo en la primera letra (sentence case). Conserva siglas (PAE,
+  ANI, EPS, DANE) y nombres propios que NO sean la marca.
+- No termines en preposición ni nexo (de, la, el, en, con, por, para, y,
+  del, ha, porque…).
+- No empieces con verbo conjugado. Bien: "Sanción a exsecretario".
   Mal: "Sancionan a exsecretario".
-- Prohibido rótulos vacíos: noticias generales, gestión institucional, mención.
-- Si el hecho ya aparece en CANDIDATOS, copia ese texto EXACTO.
+- Prohibido rótulos vacíos: noticias generales, gestión institucional,
+  mención.
+- Si el hecho ya aparece en CANDIDATOS, copia ese texto EXACTO (sigue
+  siendo corto y sin marca).
 
 Responde ÚNICAMENTE JSON válido, sin markdown:
 {"resultados":[{"id":0,"tono":"Positivo","subtema":"..."}]}
@@ -112,7 +126,7 @@ EJEMPLOS = [
     },
     {
         "titulo": "Por demoras en el PAE, Procuraduría suspende a exsecretario de Educación de Sucre",
-        "subtema": "Sanción a exsecretario de Educación",
+        "subtema": "Sanción a exsecretario",
         "tono": "Negativo",
     },
     {
@@ -156,8 +170,10 @@ def build_user_prompt(
         "Recuerda: nombre largo, nombre corto, sigla y voceros listados = el mismo FOCO.",
         "Si el FOCO es el que entrega, lanza, avanza, firma, inaugura, invierte o anuncia, tono Positivo.",
         "Neutro solo si es sede/escenario o la historia es de otro.",
+        "SUBTEMA: 3 a 5 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.",
+        "Analiza el CUERPO completo (ya viene con saltos de línea unidos). No copies el titular ni el arranque.",
         "",
-        "EJEMPLOS (misma regla de tono y de subtema):",
+        "EJEMPLOS (misma regla de tono y de subtema; el subtema NUNCA nombra la marca):",
     ]
     for e in EJEMPLOS:
         lineas.append(f'  TITULAR: {e["titulo"]}')
@@ -179,13 +195,14 @@ def build_user_prompt(
                 "como agente de una gestión."
             )
         lineas.append(
-            "RESUMEN (sirve para el subtema; el tono lo decide el vínculo con el FOCO): "
+            "CUERPO (CuerpoEs o Resumen; texto completo ya normalizado. "
+            "Analiza todo el bloque, no solo la primera oración ni la primera línea): "
             f"{it.get('resumen', '')}"
         )
         lineas.append("")
     lineas.append(
         "Devuelve JSON: {\"resultados\":[{\"id\":<id>,\"tono\":\"Positivo|Negativo|Neutro\","
-        "\"subtema\":\"<frase nominal>\"}]}"
+        "\"subtema\":\"<frase nominal de 3 a 5 palabras, sin marca>\"}]}"
     )
     if candidatos:
         lineas.append("")

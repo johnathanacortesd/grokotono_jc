@@ -194,14 +194,25 @@ def canonicalize_if_needed(tono: str) -> str:
     return canonicalize_tono(tono) if tono not in TONOS else tono
 
 
-def pick_best_subtema(cands: Sequence[str], *, titulo: str = "", resumen: str = "", marca: str = "") -> str:
+def pick_best_subtema(
+    cands: Sequence[str],
+    *,
+    titulo: str = "",
+    resumen: str = "",
+    marca: str = "",
+    aliases: Sequence[str] | None = None,
+) -> str:
     cleaned = []
     for c in cands:
-        s = clean_subtema(c, titulo=titulo, resumen=resumen, marca=marca)
+        s = clean_subtema(
+            c, titulo=titulo, resumen=resumen, marca=marca, aliases=aliases
+        )
         if s:
             cleaned.append(s)
     if not cleaned:
-        return clean_subtema("", titulo=titulo, resumen=resumen, marca=marca)
+        return clean_subtema(
+            "", titulo=titulo, resumen=resumen, marca=marca, aliases=aliases
+        )
     counts = Counter(cleaned)
     max_n = max(counts.values())
     tied = [s for s, n in counts.items() if n == max_n]
@@ -209,8 +220,8 @@ def pick_best_subtema(cands: Sequence[str], *, titulo: str = "", resumen: str = 
     def score(s: str) -> tuple:
         words = strip_dangling(s.split())
         n = len(words)
-        in_range = 1 if 3 <= n <= 12 else 0
-        return (in_range, n, -len(s), s)
+        in_range = 1 if 3 <= n <= 5 else 0
+        return (in_range, -abs(4 - n), -len(s), s)
 
     return max(tied, key=score)
 
@@ -222,6 +233,7 @@ def propagate_labels(
     resumenes: Sequence[str],
     *,
     marca: str = "",
+    aliases: Sequence[str] | None = None,
     exclude_tokens: Iterable[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Unifica subtema+tono por clúster (título O resumen) y Positivo-first.
@@ -239,7 +251,11 @@ def propagate_labels(
         if len(members) == 1:
             i = members[0]
             out_sub[i] = clean_subtema(
-                out_sub[i], titulo=titles[i], resumen=resumenes[i], marca=marca
+                out_sub[i],
+                titulo=titles[i],
+                resumen=resumenes[i],
+                marca=marca,
+                aliases=aliases,
             )
             continue
         canon_sub = pick_best_subtema(
@@ -247,6 +263,7 @@ def propagate_labels(
             titulo=titles[members[0]],
             resumen=max((resumenes[i] for i in members), key=lambda x: len(str(x))),
             marca=marca,
+            aliases=aliases,
         )
         canon_tono = positivo_first([out_tono[i] for i in members])
         for i in members:

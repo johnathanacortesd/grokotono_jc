@@ -20,12 +20,14 @@ from src.normalize import (
     extract_brand_passages,
     infer_focus_tono,
     mentions_target,
+    normalize_body_text,
 )
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
 
 ProgressFn = Callable[[float, str], None]
 
 DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
+BODY_MAX_CHARS = 7000
 
 # Tarifas configurables gpt-4.1-nano (USD por 1 millón de tokens).
 INPUT_USD_PER_1M_TOKENS = 0.10
@@ -162,6 +164,7 @@ def _draft_row(
         titulo=titulo,
         resumen=resumen,
         marca=marca,
+        aliases=aliases,
     )
     mentioned = mentions_target(titulo, resumen, marca, aliases, voceros)
     if tono in {"Positivo", "Negativo"} and not mentioned:
@@ -209,15 +212,16 @@ def classify_rows(
         items = []
         for i in chunk_ids:
             titulo = as_text(titles[i])
-            resumen = as_text(resumenes[i])
+            cuerpo_raw = as_text(resumenes[i])
+            cuerpo = normalize_body_text(cuerpo_raw, max_chars=BODY_MAX_CHARS)
             items.append(
                 {
                     "id": i,
                     "titulo": titulo[:280],
-                    "resumen": resumen[:1200],
+                    "resumen": cuerpo,
                     "pasajes": extract_brand_passages(
-                        titulo, resumen, marca, aliases, voceros
-                    )[:900],
+                        titulo, cuerpo_raw, marca, aliases, voceros
+                    )[:1800],
                 }
             )
         lo, hi = chunk_ids[0] + 1, chunk_ids[-1] + 1
@@ -272,6 +276,7 @@ def classify_rows(
         [as_text(t) for t in titles],
         [as_text(r) for r in resumenes],
         marca=marca,
+        aliases=aliases,
         exclude_tokens=exclude,
     )
     stats.elapsed_s = time.perf_counter() - t0
