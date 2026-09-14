@@ -1,0 +1,234 @@
+"""Lotes JSON a OpenAI y postproceso de tono/subtema."""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from collections.abc import Callable
+from typing import Any, Sequence
+
+from openai import OpenAI
+
+from src.group import propagate_labels
+from src.normalize import (
+    as_text,
+    brand_tokens,
+    canonicalize_tono,
+    clean_subtema,
+    extract_brand_passages,
+    mentions_target,
+)
+from src.prompts import SYSTEM_PROMPT, build_user_prompt
+
+ProgressFn = Callable[[float, str], None]
+
+DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
+
+
+def _parse_json_content(text: str) -> dict:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {"resultados": data}
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", raw, flags=re.S)
+    if match:
+        data = json.loads(match.group(0))
+        if isinstance(data, dict):
+            return data
+    raise ValueError("La respuesta del modelo no es JSON válido.")
+
+
+def _index_resultados(payload: dict) -> dict[int, dict]:
+    rows = payload.get("resultados") or payload.get("results") or payload.get("items") or []
+    if isinstance(payload, dict) and not rows and "tono" in payload:
+        rows = [payload]
+    out = {}
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            idx = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        out[idx] = row
+    return out
+
+
+def classify_batch(
+    client: OpenAI,
+    items: Sequence[dict],
+    *,
+    marca: str,
+    aliases: Sequence[str],
+    voceros: Sequence[str],
+    model: str,
+    candidatos: Sequence[str] | None = None,
+    retries: int = 3,
+) -> dict[int, dict]:
+    user = build_user_prompt(
+        items, marca=marca, aliases=aliases, voceros=voceros, candidatos=candidatos
+    )
+    last_err = None
+    for attempt in range(retries):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+                max_tokens=min(4000, 90 * max(len(items), 1) + 400),
+            )
+            content = resp.choices[0].message.content or ""
+            return _index_resultados(_parse_json_content(content))
+        except Exception as exc:  # noqa: BLE001 — se reintenta y se degrada
+            last_err = exc
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"No se pudo clasificar el lote: {last_err}")
+
+
+def _draft_row(
+    raw: dict | None,
+    titulo: str,
+    resumen: str,
+    marca: str,
+    aliases: Sequence[str],
+    voceros: Sequence[str],
+) -> tuple[str, str]:
+    raw = raw or {}
+    tono = canonicalize_tono(str(raw.get("tono") or raw.get("tone") or "Neutro"))
+    sub = clean_subtema(
+        str(raw.get("subtema") or raw.get("sub_tema") or raw.get("subtema_AI") or ""),
+        titulo=titulo,
+        resumen=resumen,
+        marca=marca,
+    )
+    if tono in {"Positivo", "Negativo"} and not mentions_target(
+        titulo, resumen, marca, aliases, voceros
+    ):
+        tono = "Neutro"
+    return tono, sub
+
+
+def classify_rows(
+    titles: Sequence[str],
+    resumenes: Sequence[str],
+    *,
+    marca: str,
+    aliases: Sequence[str] | None = None,
+    voceros: Sequence[str] | None = None,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    batch_size: int = 10,
+    progress: ProgressFn | None = None,
+) -> tuple[list[str], list[str]]:
+    aliases = list(aliases or [])
+    voceros = list(voceros or [])
+    client = OpenAI(api_key=api_key)
+    n = len(titles)
+    batch_size = max(1, min(int(batch_size or 10), 25))
+    drafts_tono = ["Neutro"] * n
+    drafts_sub = [""] * n
+    candidatos: list[str] = []
+
+    total_batches = (n + batch_size - 1) // batch_size if n else 1
+    done_batches = 0
+
+    for start in range(0, n, batch_size):
+        chunk_ids = list(range(start, min(start + batch_size, n)))
+        items = []
+        for i in chunk_ids:
+            titulo = as_text(titles[i])
+            resumen = as_text(resumenes[i])
+            items.append(
+                {
+                    "id": i,
+                    "titulo": titulo[:280],
+                    "resumen": resumen[:1200],
+                    "pasajes": extract_brand_passages(
+                        titulo, resumen, marca, aliases, voceros
+                    )[:900],
+                }
+            )
+        if progress:
+            progress(
+                done_batches / max(total_batches, 1),
+                f"Clasificando lote {done_batches + 1} de {total_batches}…",
+            )
+        try:
+            mapped = classify_batch(
+                client,
+                items,
+                marca=marca,
+                aliases=aliases,
+                voceros=voceros,
+                model=model,
+                candidatos=candidatos,
+            )
+        except Exception:
+            mapped = {}
+        for i in chunk_ids:
+            tono, sub = _draft_row(
+                mapped.get(i),
+                as_text(titles[i]),
+                as_text(resumenes[i]),
+                marca,
+                aliases,
+                voceros,
+            )
+            drafts_tono[i] = tono
+            drafts_sub[i] = sub
+            if sub:
+                candidatos.append(sub)
+        done_batches += 1
+        if progress:
+            progress(
+                done_batches / max(total_batches, 1),
+                f"Lote {done_batches} de {total_batches} listo.",
+            )
+
+    if progress:
+        progress(0.92, "Agrupando títulos y resúmenes parecidos (OCR)…")
+
+    exclude = brand_tokens([marca], aliases, voceros)
+    out_tono, out_sub = propagate_labels(
+        drafts_tono,
+        drafts_sub,
+        [as_text(t) for t in titles],
+        [as_text(r) for r in resumenes],
+        marca=marca,
+        exclude_tokens=exclude,
+    )
+    if progress:
+        progress(1.0, "Clasificación terminada.")
+    return out_tono, out_sub
+
+
+def classify_dataframe(
+    df,
+    title_col: str,
+    resumen_col: str,
+    **kwargs: Any,
+):
+    titles = df[title_col].tolist()
+    resumenes = df[resumen_col].tolist()
+    tonos, subtemas = classify_rows(titles, resumenes, **kwargs)
+    out = df.copy()
+    out = out.drop(columns=[c for c in ("tono_AI", "subtema_AI") if c in out.columns])
+    out["tono_AI"] = tonos
+    out["subtema_AI"] = subtemas
+    cols = [c for c in out.columns if c not in {"tono_AI", "subtema_AI"}]
+    return out[cols + ["tono_AI", "subtema_AI"]]
