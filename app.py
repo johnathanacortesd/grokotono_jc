@@ -31,27 +31,64 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-APP_CSS = """
+THEMES = {
+    "light": {
+        "scheme": "light",
+        "bg": "#FFFFFF",
+        "card": "#F7F9F9",
+        "text": "#0F1419",
+        "muted": "#536471",
+        "line": "#EFF3F4",
+        "accent": "#1D9BF0",
+        "accent_soft": "rgba(29, 155, 240, 0.14)",
+    },
+    "dark": {
+        "scheme": "dark",
+        "bg": "#000000",
+        "card": "#16181C",
+        "text": "#E7E9EA",
+        "muted": "#71767B",
+        "line": "#2F3336",
+        "accent": "#1D9BF0",
+        "accent_soft": "rgba(29, 155, 240, 0.20)",
+    },
+}
+
+
+def _active_theme() -> str:
+    try:
+        kind = str(getattr(getattr(st.context, "theme", None), "type", "") or "").lower()
+        if kind in THEMES:
+            return kind
+    except Exception:
+        pass
+    return "light"
+
+
+def _css_for(kind: str) -> str:
+    t = THEMES[kind]
+    head = f"""
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-
-:root {
-  --gx-accent: var(--st-primary-color, var(--primary-color, #1d9bf0));
-  --gx-bg: var(--st-background-color, var(--background-color, #ffffff));
-  --gx-card: var(--st-secondary-background-color, var(--secondary-background-color, #f7f9f9));
-  --gx-text: var(--st-text-color, var(--text-color, #0f1419));
-  --gx-line: var(--st-border-color, var(--border-color, #eff3f4));
-  --gx-muted: color-mix(in srgb, var(--gx-text) 62%, var(--gx-bg));
-  --gx-accent-soft: color-mix(in srgb, var(--gx-accent) 16%, transparent);
-}
-
+html {{ color-scheme: {t["scheme"]}; }}
+:root {{
+  --gx-accent: {t["accent"]};
+  --gx-bg: {t["bg"]};
+  --gx-card: {t["card"]};
+  --gx-text: {t["text"]};
+  --gx-muted: {t["muted"]};
+  --gx-line: {t["line"]};
+  --gx-accent-soft: {t["accent_soft"]};
+}}
 html, body, .stApp, [data-testid="stAppViewContainer"],
-[data-testid="stHeader"], [data-testid="stBottomBlockContainer"] {
-  background: var(--gx-bg) !important;
-  color: var(--gx-text) !important;
+[data-testid="stHeader"], [data-testid="stBottomBlockContainer"],
+[data-testid="stMain"], section.main, .main, .block-container {{
+  background: {t["bg"]} !important;
+  color: {t["text"]} !important;
   font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif !important;
-}
-
+}}
+"""
+    rest = """
 .block-container {
   padding-top: 1.4rem !important;
   padding-bottom: 3rem !important;
@@ -70,9 +107,10 @@ h1, h2, h3, p, label, .stMarkdown, .stCaption {
 }
 h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; color: var(--gx-text); }
 
-[data-testid="stSidebar"] {
+[data-testid="stSidebar"], [data-testid="stSidebarContent"] {
   background: var(--gx-card) !important;
   border-right: 1px solid var(--gx-line);
+  color: var(--gx-text) !important;
 }
 [data-testid="stSidebar"] * {
   font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
@@ -160,6 +198,7 @@ div[role="progressbar"] > div {
 hr { border-color: var(--gx-line) !important; }
 </style>
 """
+    return head + rest
 
 
 def _secrets_obj():
@@ -235,7 +274,7 @@ def format_usd(value: float) -> str:
 
 
 def inject_css() -> None:
-    st.markdown(APP_CSS, unsafe_allow_html=True)
+    st.markdown(_css_for(_active_theme()), unsafe_allow_html=True)
 
 
 def brand_header() -> None:

@@ -314,5 +314,18 @@ class CostTests(unittest.TestCase):
         self.assertAlmostEqual(stats.cost_total_usd, 0.0018)
 
 
+class ThemeCssTests(unittest.TestCase):
+    def test_explicit_light_and_dark_surfaces(self):
+        from app import _css_for
+
+        dark = _css_for("dark")
+        light = _css_for("light")
+        self.assertIn("background: #000000", dark)
+        self.assertIn("color-scheme: dark", dark)
+        self.assertIn("background: #FFFFFF", light)
+        self.assertIn("color-scheme: light", light)
+        self.assertNotIn("st.dataframe", dark)
+
+
 if __name__ == "__main__":
     unittest.main()
