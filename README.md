@@ -140,13 +140,15 @@ python3 -m unittest tests.test_postprocess -v
 - **Neutro** si solo es sede/escenario, o la historia es de otro. No uses
   Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema:** frase nominal de **máximo 6 palabras** (frase corta completa;
-  no recortar a mitad de sentido) a partir del **cuerpo completo** (preferir
-  **CuerpoEs**). Sentence case; se conservan siglas. **No menciones la
-  marca.** No copies el título ni la primera línea ni un extracto del cuerpo.
-  Noticias iguales o parecidas (OCR) → mismo subtema y mismo tono;
-  **Positivo** gana. El cálculo de `tema_AI` **no** regenera ni «mejora» el
-  subtema.
+- **Subtema:** frase nominal de **3 a 6 palabras** que condensa el ángulo
+  de la nota a partir del **cuerpo completo** (preferir **CuerpoEs**; se
+  unen los saltos de línea de maquetación y se lee un tramo sustancial,
+  no solo la primera línea). Sentence case; se conservan siglas. **No
+  menciones la marca** en el subtema. No copies el título ni la primera
+  línea del cuerpo. Noticias iguales o parecidas (OCR) → mismo subtema y
+  mismo tono; **Positivo** gana. El cálculo de `tema_AI` **no** regenera
+  ni «mejora» el subtema. La única diferencia frente a `18b79f6` es el
+  techo de **6** palabras (antes 5).
 - **Tema (`tema_AI`):** etiqueta temática real, un poco más amplia que el
   subtema (máx. **4 palabras**). Español de Colombia, sentence case, sin
   relleno de marca. **No** es un collage «palabra y palabra» con los

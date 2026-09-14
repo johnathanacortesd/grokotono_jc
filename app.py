@@ -446,7 +446,7 @@ def main() -> None:
   sobre un tema duro (p. ej. desempleo) **no** es Negativo.
 - **Neutro** solo si no hay vínculo evaluativo (sede, escenario, o la historia es de otro).
 
-El **subtema** es una frase nominal de **máximo 6 palabras**, sin el nombre de la marca,
+El **subtema** es una frase nominal de **3 a 6 palabras**, sin el nombre de la marca,
 distinta del título y de la primera línea del cuerpo. Prefiere la columna **CuerpoEs**.
 El **tema** agrupa subtemas ya listos en una etiqueta temática real (máx. 4 palabras),
 no un collage «palabra y palabra».

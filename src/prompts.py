@@ -55,14 +55,12 @@ Ante duda Negativo vs Neutro: si la crítica no apunta al FOCO → Neutro;
 si apunta al FOCO → Negativo.
 
 SUBTEMA
-Frase nominal CORTA y completa (máximo 6 palabras; no recortes a mitad de sentido)
+Frase nominal CORTA y completa (típicamente 3 a 6 palabras; nunca larga)
 en español colombiano que condensa el ÁNGULO del hecho a partir del CUERPO
 completo (CuerpoEs o Resumen). No es un collage, no es un recorte del título
 y no es la primera línea del cuerpo.
-- Máximo 6 palabras. Prefiere una frase corta completa (4 a 6 está bien).
-  Bien: "Entrega de becas de sostenimiento". Bien: "Inicio de clases con
-  alimentación escolar". Bien: "Cocha Molina celebró". Mal: una oración
-  larga, un extracto del cuerpo o un titular reescrito.
+- 3 a 6 palabras. Bien: "Entrega de becas de sostenimiento". Mal: una
+  oración larga o un titular reescrito.
 - NO menciones la MARCA, ni alias, ni el nombre de la institución en el
   subtema. El subtema es el tema/ángulo de la noticia, no una etiqueta de
   marca. Mal: "Universidad de Antioquia entrega becas". Bien: "Entrega de
@@ -195,7 +193,7 @@ def build_user_prompt(
         "TONO: solo cómo los PASAJES DEL FOCO (y el título de apoyo) tratan al FOCO, no el sentimiento de la noticia.",
         "Colaborar en un estudio sobre desempleo (u otro problema social) NO es Negativo para el FOCO.",
         "Encuentros, eventos, gestiones, entregas y avances del FOCO → Positivo.",
-        "SUBTEMA: máximo 6 palabras, frase corta completa, sin el nombre de la marca/alias, distinto del título y de la primera línea.",
+        "SUBTEMA: 3 a 6 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.",
         "Analiza el CUERPO completo (ya viene con saltos de línea unidos). No copies el titular ni el arranque.",
         "",
         "EJEMPLOS (misma regla de tono y de subtema; el subtema NUNCA nombra la marca):",
@@ -227,7 +225,7 @@ def build_user_prompt(
         lineas.append("")
     lineas.append(
         "Devuelve JSON: {\"resultados\":[{\"id\":<id>,\"tono\":\"Positivo|Negativo|Neutro\","
-        "\"subtema\":\"<frase nominal de máximo 6 palabras, sin marca>\"}]}"
+        "\"subtema\":\"<frase nominal de 3 a 6 palabras, sin marca>\"}]}"
     )
     if candidatos:
         lineas.append("")
