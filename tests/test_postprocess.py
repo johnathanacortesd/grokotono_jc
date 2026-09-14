@@ -7,15 +7,20 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from src.classify import ClassifyStats, classify_rows, estimate_cost_usd
 from src.group import cluster_indices, positivo_first, propagate_labels
 from src.io_xlsx import dataframe_to_xlsx_bytes, guess_resumen_column, guess_title_column, read_xlsx
 from src.normalize import (
     canonicalize_tono,
     clean_subtema,
+    focus_names,
+    infer_focus_tono,
     mentions_target,
+    name_variants,
     sentence_case,
     strip_dangling,
 )
+from src.prompts import SYSTEM_PROMPT
 
 
 class NormalizeTests(unittest.TestCase):
@@ -153,7 +158,7 @@ class ClassifyPipelineTests(unittest.TestCase):
         ):
             from src.classify import classify_rows
 
-            tonos, subs = classify_rows(
+            tonos, subs, _stats = classify_rows(
                 titles,
                 resumenes,
                 marca="Gobernación de Sucre",
@@ -181,6 +186,132 @@ class IoTests(unittest.TestCase):
         self.assertEqual(guess_title_column(back.columns), "Título")
         self.assertEqual(guess_resumen_column(back.columns), "Resumen")
         self.assertEqual(list(back.columns), list(df.columns))
+
+
+class FocusMatchingTests(unittest.TestCase):
+    def test_marca_variants_include_short_and_u_de(self):
+        names = name_variants("Universidad de Antioquia")
+        folded = " ".join(names).lower()
+        self.assertTrue(any("u de antioquia" in v.lower() for v in names))
+        self.assertIn("universidad", folded)
+
+    def test_alias_and_vocero_are_same_focus(self):
+        names = focus_names(
+            "Universidad de Antioquia",
+            ["UdeA", "U. de Antioquia"],
+            ["John Jairo Arboleda Céspedes"],
+        )
+        blob_alias = "la udea lanzo un programa de becas"
+        blob_short = "la u de antioquia firmo un convenio"
+        blob_vocero = "john jairo arboleda cespedes anuncio la acreditacion"
+        self.assertTrue(mentions_target(blob_alias, "", "Universidad de Antioquia", ["UdeA"], []))
+        self.assertTrue(mentions_target(blob_short, "", "Universidad de Antioquia", ["U. de Antioquia"], []))
+        self.assertTrue(
+            mentions_target(
+                blob_vocero,
+                "",
+                "Universidad de Antioquia",
+                [],
+                ["John Jairo Arboleda Céspedes"],
+            )
+        )
+        compact = " ".join(names).lower()
+        self.assertIn("udea", compact.replace(".", ""))
+
+    def test_upb_acronym(self):
+        vars_ = [v.lower() for v in name_variants("Universidad Pontificia Bolivariana")]
+        self.assertTrue(any(v.replace(" ", "") == "upb" for v in vars_))
+
+
+class TonoHeuristicaTests(unittest.TestCase):
+    marca = "Universidad de Antioquia"
+    aliases = ["UdeA", "U. de Antioquia"]
+    voceros = ["John Jairo Arboleda Céspedes"]
+
+    def test_gestion_sin_adjetivos_es_positivo(self):
+        self.assertEqual(
+            infer_focus_tono(
+                "La Universidad entregó 400 becas de sostenimiento",
+                "La Universidad de Antioquia entregó becas a estudiantes de estratos 1 y 2.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            ),
+            "Positivo",
+        )
+        self.assertEqual(
+            infer_focus_tono(
+                "Avanzó la obra del nuevo bloque de laboratorios",
+                "La U. de Antioquia avanzó la obra de laboratorios en el campus.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            ),
+            "Positivo",
+        )
+        self.assertEqual(
+            infer_focus_tono(
+                "La UdeA lanzó el programa de diplomados virtuales",
+                "La institución lanzó diplomados para docentes.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            ),
+            "Positivo",
+        )
+
+    def test_critica_al_foco_es_negativo(self):
+        self.assertEqual(
+            infer_focus_tono(
+                "Estudiantes protestan contra la Universidad por alza de matrícula",
+                "Hay quejas contra la UdeA por el incremento de derechos pecunarios.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            ),
+            "Negativo",
+        )
+
+    def test_sede_es_neutro(self):
+        self.assertIsNone(
+            infer_focus_tono(
+                "El foro de periodismo se realizó en el auditorio de la Universidad",
+                "El evento se realizó en el auditorio de la Universidad de Antioquia.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            )
+        )
+
+    def test_draft_upgrade_neutro_to_positivo(self):
+        from src.classify import _draft_row
+
+        tono, _sub = _draft_row(
+            {"tono": "Neutro", "subtema": "Entrega de becas de sostenimiento"},
+            "La Universidad entregó 400 becas de sostenimiento",
+            "La Universidad de Antioquia entregó becas a estudiantes de estratos 1 y 2.",
+            self.marca,
+            self.aliases,
+            self.voceros,
+        )
+        self.assertEqual(tono, "Positivo")
+
+
+class PromptTests(unittest.TestCase):
+    def test_prompt_biases_gestion_to_positivo(self):
+        self.assertIn("Si el FOCO HACE la gestión, el tono es Positivo", SYSTEM_PROMPT)
+        self.assertIn("NEUTRO — úsalo POCO", SYSTEM_PROMPT)
+        self.assertNotIn("Ante duda entre Positivo y Neutro, o entre Negativo y Neutro, elige Neutro", SYSTEM_PROMPT)
+
+
+class CostTests(unittest.TestCase):
+    def test_nano_rates(self):
+        inp, out, total = estimate_cost_usd(10_000, 2_000)
+        self.assertAlmostEqual(inp, 0.001)
+        self.assertAlmostEqual(out, 0.0008)
+        self.assertAlmostEqual(total, 0.0018)
+        stats = ClassifyStats(prompt_tokens=10_000, completion_tokens=2_000)
+        self.assertAlmostEqual(stats.cost_total_usd, 0.0018)
 
 
 if __name__ == "__main__":
