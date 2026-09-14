@@ -7,12 +7,13 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.classify import ClassifyStats, classify_rows, estimate_cost_usd
+from src.classify import ClassifyStats, classify_dataframe, classify_rows, estimate_cost_usd
 from src.group import cluster_indices, positivo_first, propagate_labels
 from src.io_xlsx import dataframe_to_xlsx_bytes, guess_cuerpo_column, guess_resumen_column, guess_title_column, read_xlsx
 from src.normalize import (
     canonicalize_tono,
     clean_subtema,
+    extract_brand_passages,
     first_content_line,
     focus_names,
     fold_text,
@@ -26,7 +27,8 @@ from src.normalize import (
     strip_brand_mentions,
     strip_dangling,
 )
-from src.prompts import SYSTEM_PROMPT
+from src.prompts import SYSTEM_PROMPT, build_user_prompt
+from src.tema import assign_temas, broaden_subtema, cluster_subtema_indices
 
 
 class NormalizeTests(unittest.TestCase):
@@ -250,7 +252,7 @@ class ClassifyPipelineTests(unittest.TestCase):
         ):
             from src.classify import classify_rows
 
-            tonos, subs, _stats = classify_rows(
+            tonos, subs, _temas, _stats = classify_rows(
                 titles,
                 resumenes,
                 marca="Gobernación de Sucre",
@@ -263,27 +265,30 @@ class ClassifyPipelineTests(unittest.TestCase):
         self.assertEqual(tonos[1], "Positivo")
         self.assertEqual(subs[0], subs[1])
 
-    def test_sends_substantial_normalized_cuerpo(self):
-        titulo = "Entrega de apoyos de sostenimiento en el campus"
-        lead = "Lead corto de la nota."
-        rest = "Párrafo de desarrollo del hecho institucional con detalle. " * 90
-        cuerpo = lead + "\n" + rest
+    def test_sends_mention_passages_not_full_body(self):
+        titulo = "Agenda cultural de la ciudad"
+        filler = "Párrafo de contexto general sobre el clima y el tránsito. " * 40
+        mention = (
+            "La Universidad de Antioquia realizó un encuentro con líderes comunales "
+            "y adquirió el compromiso de avanzar la obra del campus."
+        )
+        cuerpo = "Lead corto de la nota.\n\n" + filler + "\n\n" + mention
         captured = {}
 
         def fake_batch(client, items, **kwargs):
-            captured["resumen"] = items[0]["resumen"]
+            captured["item"] = items[0]
             return {
                 items[0]["id"]: {
                     "id": items[0]["id"],
-                    "tono": "Positivo",
-                    "subtema": "Entrega de apoyos",
+                    "tono": "Neutro",
+                    "subtema": "Encuentro con líderes comunales",
                 }
             }
 
         with patch("src.classify.OpenAI"), patch(
             "src.classify.classify_batch", side_effect=fake_batch
         ):
-            classify_rows(
+            tonos, _subs, temas, _stats = classify_rows(
                 [titulo],
                 [cuerpo],
                 marca="Universidad de Antioquia",
@@ -292,10 +297,14 @@ class ClassifyPipelineTests(unittest.TestCase):
                 api_key="test",
                 batch_size=10,
             )
-        self.assertNotIn("\n", captured["resumen"])
-        self.assertGreater(len(captured["resumen"]), 1200)
-        self.assertLessEqual(len(captured["resumen"]), 7100)
-        self.assertIn("desarrollo del hecho", captured["resumen"])
+        pasajes = captured["item"]["pasajes"]
+        self.assertNotIn("resumen", captured["item"])
+        self.assertIn("encuentro", pasajes.lower())
+        self.assertIn("Universidad de Antioquia", pasajes)
+        self.assertNotEqual(pasajes.strip().split("\n")[0], "Lead corto de la nota.")
+        self.assertLess(len(pasajes), len(cuerpo))
+        self.assertEqual(tonos[0], "Positivo")
+        self.assertTrue(temas[0])
 
 
 class IoTests(unittest.TestCase):
@@ -427,15 +436,76 @@ class TonoHeuristicaTests(unittest.TestCase):
         )
         self.assertEqual(tono, "Positivo")
 
+    def test_encuentro_evento_compromiso_es_positivo(self):
+        self.assertEqual(
+            infer_focus_tono(
+                "Encuentro con líderes comunales",
+                "La Universidad de Antioquia realizó un encuentro con líderes comunales del Aburrá.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            ),
+            "Positivo",
+        )
+        self.assertEqual(
+            infer_focus_tono(
+                "Evento de ciencia abierta",
+                "La UdeA participó en el evento de ciencia abierta y adquirió un compromiso de cobertura.",
+                self.marca,
+                self.aliases,
+                self.voceros,
+            ),
+            "Positivo",
+        )
+
+    def test_sin_pasajes_queda_neutro_salvo_titulo(self):
+        from src.classify import _draft_row
+
+        tono, _sub = _draft_row(
+            {"tono": "Positivo", "subtema": "Agenda cultural de la ciudad"},
+            "Agenda cultural de la ciudad",
+            "Un festival de música se tomó el centro sin mencionar a la institución.",
+            self.marca,
+            self.aliases,
+            self.voceros,
+            pasajes="",
+        )
+        self.assertEqual(tono, "Neutro")
+
+        tono_titulo, _ = _draft_row(
+            {"tono": "Neutro", "subtema": "Entrega de becas de sostenimiento"},
+            "La Universidad entregó 400 becas de sostenimiento",
+            "",
+            self.marca,
+            self.aliases,
+            self.voceros,
+            pasajes="",
+        )
+        self.assertEqual(tono_titulo, "Positivo")
+
 
 class PromptTests(unittest.TestCase):
     def test_prompt_biases_gestion_to_positivo(self):
-        self.assertIn("Si el FOCO HACE la gestión, el tono es Positivo", SYSTEM_PROMPT)
+        self.assertIn("Si el FOCO HACE la gestión", SYSTEM_PROMPT)
         self.assertIn("NEUTRO — úsalo POCO", SYSTEM_PROMPT)
         self.assertIn("3 a 5 palabras", SYSTEM_PROMPT)
         self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
-        self.assertIn("saltos de línea", SYSTEM_PROMPT)
+        self.assertIn("PASAJES DEL FOCO", SYSTEM_PROMPT)
+        low = SYSTEM_PROMPT.lower()
+        self.assertIn("encuentros", low)
+        self.assertIn("eventos", low)
+        self.assertIn("compromisos", low)
+        self.assertIn("lanzamientos", low)
         self.assertNotIn("Ante duda entre Positivo y Neutro, o entre Negativo y Neutro, elige Neutro", SYSTEM_PROMPT)
+        user = build_user_prompt(
+            [{"id": 0, "titulo": "Nota", "pasajes": "La UdeA realizó un encuentro."}],
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+            voceros=[],
+        )
+        self.assertIn("PASAJES DEL FOCO", user)
+        self.assertIn("Encuentros, eventos, gestiones", user)
+        self.assertNotIn("CUERPO (CuerpoEs o Resumen; texto completo", user)
 
 
 class CostTests(unittest.TestCase):
@@ -456,7 +526,10 @@ class ThemeCssTests(unittest.TestCase):
 
         self.assertNotIn("background: #FFFFFF", _APP_CSS)
         self.assertNotIn("background: #ffffff", _APP_CSS)
-        self.assertIn("1d9bf0", _APP_CSS.lower())
+        self.assertNotIn("1d9bf0", _APP_CSS.lower())
+        self.assertIn("ff6a00", _APP_CSS.lower())
+        self.assertIn("840px", _APP_CSS)
+        self.assertIn("gx-summary-flag", _APP_CSS)
         self.assertIn("stprogress", _APP_CSS.lower())
         self.assertIn("gx-progress-status", _APP_CSS)
         src = Path("app.py").read_text(encoding="utf-8")
@@ -464,6 +537,160 @@ class ThemeCssTests(unittest.TestCase):
         self.assertIsNone(__import__("re").search(r"\.progress\([^)]*text\s*=", src))
         self.assertIn("CuerpoEs", src)
         self.assertIn("foco_y_ajuste", src)
+        self.assertIn("dl_after_progress", src)
+        self.assertIn('layout="wide"', src)
+        cfg = Path(".streamlit/config.toml").read_text(encoding="utf-8")
+        self.assertIn("FF6A00", cfg)
+        self.assertIn("#000000", cfg)
+
+
+class PassageExtractionTests(unittest.TestCase):
+    marca = "Universidad de Antioquia"
+    aliases = ["UdeA", "U. de Antioquia"]
+    voceros = ["John Jairo Arboleda Céspedes"]
+
+    def test_late_mention_window_not_first_line(self):
+        first = "Lead de la ciudad sin la marca"
+        filler = "Más contexto regional sobre clima y movilidad urbana. "
+        mention = (
+            "La Universidad de Antioquia realizó un encuentro con líderes comunales "
+            "y se comprometió a avanzar la obra del campus."
+        )
+        after = "Los voceros locales pidieron seguimiento a los acuerdos."
+        cuerpo = first + "\n\n" + (filler * 25) + "\n\n" + mention + " " + after
+        pasajes = extract_brand_passages(
+            "Titular genérico de agenda local",
+            cuerpo,
+            self.marca,
+            self.aliases,
+            self.voceros,
+        )
+        self.assertIn("encuentro", pasajes.lower())
+        self.assertIn("Universidad de Antioquia", pasajes)
+        self.assertIn("obra", pasajes.lower())
+        self.assertNotEqual(pasajes.strip().splitlines()[0].strip(), first)
+        self.assertNotIn(first, pasajes)
+
+    def test_newlines_do_not_hide_mention(self):
+        cuerpo = (
+            "Arranque de la nota.\n"
+            "La UdeA\n"
+            "lanzó el programa de diplomados virtuales para docentes del departamento."
+        )
+        pasajes = extract_brand_passages(
+            "Lanzamiento institucional",
+            cuerpo,
+            self.marca,
+            self.aliases,
+            [],
+        )
+        self.assertIn("diplomados", pasajes.lower())
+        folded = pasajes.lower().replace("\n", " ")
+        self.assertIn("udea", folded)
+
+    def test_no_mention_returns_empty(self):
+        pasajes = extract_brand_passages(
+            "Festival de la ciudad",
+            "Un concierto llenó la plaza principal sin citar a la institución.",
+            self.marca,
+            ["UdeA"],
+            [],
+        )
+        self.assertEqual(pasajes, "")
+
+    def test_vocero_window(self):
+        cuerpo = (
+            "La jornada académica reunió a varios invitados.\n\n"
+            "John Jairo Arboleda Céspedes anunció la acreditación de alta calidad "
+            "durante el evento con rectores del país."
+        )
+        pasajes = extract_brand_passages(
+            "Jornada de rectores",
+            cuerpo,
+            self.marca,
+            self.aliases,
+            self.voceros,
+        )
+        self.assertIn("acreditación", pasajes.lower())
+        self.assertIn("Arboleda", pasajes)
+
+
+class TemaGroupingTests(unittest.TestCase):
+    def test_singleton_is_slightly_more_general(self):
+        sub = "Entrega de becas de sostenimiento"
+        tema = broaden_subtema(sub)
+        self.assertEqual(tema, "Becas y apoyos estudiantiles")
+        self.assertNotEqual(tema.lower(), sub.lower())
+        self.assertGreaterEqual(len(tema.split()), 2)
+        self.assertLessEqual(len(tema.split()), 5)
+
+    def test_similar_subtemas_share_tema(self):
+        subs = [
+            "Entrega de becas de sostenimiento",
+            "Becas de sostenimiento para estratos 1 y 2",
+            "Protesta por alza de matrícula",
+            "Alza de matrícula y protestas estudiantiles",
+        ]
+        temas = assign_temas(
+            subs,
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+        )
+        self.assertEqual(temas[0], temas[1])
+        self.assertEqual(temas[2], temas[3])
+        self.assertNotEqual(temas[0], temas[2])
+        self.assertEqual(temas[0], "Becas y apoyos estudiantiles")
+        clusters = cluster_subtema_indices(subs)
+        sizes = sorted(len(c) for c in clusters)
+        self.assertEqual(sizes, [2, 2])
+
+    def test_tema_strips_brand_and_sentence_case(self):
+        temas = assign_temas(
+            ["Universidad de Antioquia entrega becas de sostenimiento"],
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+        )
+        folded = temas[0].lower()
+        self.assertNotIn("antioquia", folded)
+        self.assertNotIn("udea", folded)
+        self.assertEqual(temas[0][:1], temas[0][:1].upper())
+        self.assertLessEqual(len(temas[0].split()), 5)
+
+    def test_excel_column_order(self):
+        df = pd.DataFrame(
+            {
+                "Título": ["La Universidad entregó becas de sostenimiento"],
+                "CuerpoEs": [
+                    "La Universidad de Antioquia entregó becas a estudiantes de estratos 1 y 2."
+                ],
+            }
+        )
+
+        def fake_batch(client, items, **kwargs):
+            return {
+                items[0]["id"]: {
+                    "id": items[0]["id"],
+                    "tono": "Positivo",
+                    "subtema": "Entrega de becas de sostenimiento",
+                }
+            }
+
+        with patch("src.classify.OpenAI"), patch(
+            "src.classify.classify_batch", side_effect=fake_batch
+        ):
+            out, _stats = classify_dataframe(
+                df,
+                "Título",
+                "CuerpoEs",
+                marca="Universidad de Antioquia",
+                aliases=["UdeA"],
+                voceros=[],
+                api_key="test",
+            )
+        self.assertEqual(list(out.columns)[-3:], ["tono_AI", "tema_AI", "subtema_AI"])
+        self.assertEqual(out["tono_AI"].iloc[0], "Positivo")
+        self.assertEqual(out["tema_AI"].iloc[0], "Becas y apoyos estudiantiles")
+        self.assertTrue(out["subtema_AI"].iloc[0])
 
 
 if __name__ == "__main__":
