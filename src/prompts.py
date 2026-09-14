@@ -11,17 +11,22 @@ FOCO = MARCA PRINCIPAL + todos sus ALIAS + VOCEROS PROPIOS. Son la misma entidad
 Trata igual el nombre largo, el nombre corto, la sigla, apodos y el vocero listado.
 Ejemplo: «Universidad de Antioquia», «U. de Antioquia», «UdeA» y el rector listado = mismo FOCO.
 
-El TONO se juzga SOLO por el vínculo de la nota con el FOCO.
-No es el sentimiento general de la historia, ni de un sector, ni de un territorio.
+El TONO se juzga SOLO por cómo aparece el FOCO (marca, alias, voceros) en
+los PASAJES DEL FOCO (oraciones del CuerpoEs que lo mencionan) y, como
+apoyo, el TÍTULO. No es el sentimiento general de la historia, ni de un
+sector, ni de un territorio. Una nota puede ser negativa en su tema
+(desempleo, crimen, inflación) y aun así Neutro o Positivo para el FOCO.
 
 TONO ∈ Positivo | Negativo | Neutro
 
 POSITIVO — úsalo cuando el FOCO es agente, protagonista o beneficiario de un hecho
 que lo deja bien, AUNQUE el texto sea seco y no traiga adjetivos
 («excelente», «destacado», «exitoso», etc.). Cuentan como Positivo:
-- gestiones y actos oficiales del FOCO: «la Universidad entregó…», «avanzó la obra de…»,
+- gestiones, encuentros, eventos, entregas y avances del FOCO:
+  «la Universidad entregó…», «avanzó la obra de…»,
   «lanzó el programa…», «firmó el convenio…», «inauguró…», «aprobó recursos…»,
-  «puso en marcha…», «destinó inversión…»
+  «puso en marcha…», «destinó inversión…», «realizó un encuentro…»,
+  «participó en el evento…»
 - logros: rankings, acreditación, becas, infraestructura, programas, investigación,
   graduaciones, trabajo con comunidad, alianzas, convocatorias que abre el FOCO
 - reconocimiento, inversión, cifras buenas, acompañamiento o respaldo al FOCO
@@ -29,18 +34,23 @@ Si el FOCO HACE la gestión, el tono es Positivo. No pidas adjetivos para etique
 
 NEGATIVO — crítica, queja, denuncia, sanción, protesta, retraso atribuido o
 evaluación negativa DIRIGIDA al FOCO (marca, alias o voceros). El FOCO es el
-señalado, no un tercero.
+señalado, no un tercero. NUNCA marques Negativo solo porque el tema de la
+noticia sea socialmente malo si eso no ataca al FOCO.
 
 NEUTRO — úsalo POCO. Solo cuando NO hay vínculo evaluativo con el FOCO:
 - mención de sede o escenario («el foro se realizó en la Universidad»)
 - la historia es de otra persona o entidad; el FOCO aparece de fondo o como dato
 - listado incidental sin gestión ni juicio
+- COLABORACIÓN en un estudio o informe ajeno sin crítica ni elogio
+  («con la colaboración de [marca]», «participó en el estudio»). Default Neutro.
+  Positivo solo si se exalta el rol. Nunca Negativo por las cifras del problema
+  (p. ej. desempleo).
 NO uses Neutro para gestiones institucionales del FOCO por ser «solo descriptivas».
 Un informe del FOCO sobre un problema ajeno puede ser Neutro; si el FOCO aporta
 solución o anuncia gestión propia, es Positivo.
 
 Ante duda Positivo vs Neutro: si el FOCO es agente de gestión, logro o acto
-oficial → Positivo.
+oficial → Positivo. Si solo colabora en un estudio ajeno sin elogio → Neutro.
 Ante duda Negativo vs Neutro: si la crítica no apunta al FOCO → Neutro;
 si apunta al FOCO → Negativo.
 
@@ -149,6 +159,16 @@ EJEMPLOS = [
         "subtema": "Informe sobre intentos de suicidio en jóvenes",
         "tono": "Neutro",
     },
+    {
+        "titulo": "La Universidad realizó un encuentro con líderes comunales del Aburrá",
+        "subtema": "Encuentro con líderes comunales",
+        "tono": "Positivo",
+    },
+    {
+        "titulo": "Desempleo juvenil en Barranquilla llega al 18,8 % según un nuevo informe",
+        "subtema": "Informe de desempleo juvenil",
+        "tono": "Neutro",
+    },
 ]
 
 
@@ -170,6 +190,9 @@ def build_user_prompt(
         "Recuerda: nombre largo, nombre corto, sigla y voceros listados = el mismo FOCO.",
         "Si el FOCO es el que entrega, lanza, avanza, firma, inaugura, invierte o anuncia, tono Positivo.",
         "Neutro solo si es sede/escenario o la historia es de otro.",
+        "TONO: solo cómo los PASAJES DEL FOCO (y el título de apoyo) tratan al FOCO, no el sentimiento de la noticia.",
+        "Colaborar en un estudio sobre desempleo (u otro problema social) NO es Negativo para el FOCO.",
+        "Encuentros, eventos, gestiones, entregas y avances del FOCO → Positivo.",
         "SUBTEMA: 3 a 5 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.",
         "Analiza el CUERPO completo (ya viene con saltos de línea unidos). No copies el titular ni el arranque.",
         "",
@@ -185,7 +208,7 @@ def build_user_prompt(
         pasajes = it.get("pasajes") or ""
         if pasajes:
             lineas.append(
-                "LO QUE SE DICE DEL FOCO (marca/alias/voceros; decide el tono): "
+                "LO QUE SE DICE DEL FOCO (marca/alias/voceros; decide el TONO, no el subtema): "
                 f"{pasajes}"
             )
         else:
