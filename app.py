@@ -31,64 +31,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-THEMES = {
-    "light": {
-        "scheme": "light",
-        "bg": "#FFFFFF",
-        "card": "#F7F9F9",
-        "text": "#0F1419",
-        "muted": "#536471",
-        "line": "#EFF3F4",
-        "accent": "#1D9BF0",
-        "accent_soft": "rgba(29, 155, 240, 0.14)",
-    },
-    "dark": {
-        "scheme": "dark",
-        "bg": "#000000",
-        "card": "#16181C",
-        "text": "#E7E9EA",
-        "muted": "#71767B",
-        "line": "#2F3336",
-        "accent": "#1D9BF0",
-        "accent_soft": "rgba(29, 155, 240, 0.20)",
-    },
-}
-
-
-def _active_theme() -> str:
-    try:
-        kind = str(getattr(getattr(st.context, "theme", None), "type", "") or "").lower()
-        if kind in THEMES:
-            return kind
-    except Exception:
-        pass
-    return "light"
-
-
-def _css_for(kind: str) -> str:
-    t = THEMES[kind]
-    head = f"""
+_APP_CSS = """
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-html {{ color-scheme: {t["scheme"]}; }}
-:root {{
-  --gx-accent: {t["accent"]};
-  --gx-bg: {t["bg"]};
-  --gx-card: {t["card"]};
-  --gx-text: {t["text"]};
-  --gx-muted: {t["muted"]};
-  --gx-line: {t["line"]};
-  --gx-accent-soft: {t["accent_soft"]};
-}}
-html, body, .stApp, [data-testid="stAppViewContainer"],
-[data-testid="stHeader"], [data-testid="stBottomBlockContainer"],
-[data-testid="stMain"], section.main, .main, .block-container {{
-  background: {t["bg"]} !important;
-  color: {t["text"]} !important;
+
+html, body, .stApp, [data-testid="stAppViewContainer"] {
   font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif !important;
-}}
-"""
-    rest = """
+}
+
 .block-container {
   padding-top: 1.4rem !important;
   padding-bottom: 3rem !important;
@@ -102,18 +52,14 @@ footer, .stDeployButton, [data-testid="stDecoration"],
 }
 header[data-testid="stHeader"] { background: transparent !important; }
 
-h1, h2, h3, p, label, .stMarkdown, .stCaption {
-  font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
-}
-h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; color: var(--gx-text); }
-
-[data-testid="stSidebar"], [data-testid="stSidebarContent"] {
-  background: var(--gx-card) !important;
-  border-right: 1px solid var(--gx-line);
-  color: var(--gx-text) !important;
-}
+h1, h2, h3, p, label, .stMarkdown, .stCaption,
 [data-testid="stSidebar"] * {
   font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
+}
+h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; }
+
+[data-testid="stSidebar"] {
+  border-right: 1px solid var(--st-border-color, var(--border-color, transparent));
 }
 
 .gx-brand { margin: 0 0 1.25rem 0; }
@@ -122,41 +68,35 @@ h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; color: var(--
   font-weight: 700;
   letter-spacing: -0.06em;
   line-height: 1.1;
-  color: var(--gx-text);
 }
-.gx-mark span { color: var(--gx-accent); }
+.gx-mark span { color: var(--st-primary-color, #1d9bf0); }
 .gx-tag {
   margin: 0.35rem 0 0 0;
-  color: var(--gx-muted);
+  opacity: 0.65;
   font-size: 0.92rem;
   font-weight: 500;
 }
 
 .gx-card {
-  background: var(--gx-card);
-  border: 1px solid var(--gx-line);
+  background: var(--st-secondary-background-color, var(--secondary-background-color, transparent));
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(127,127,127,0.2)));
   border-radius: 16px;
   padding: 1rem 1.1rem;
   margin: 0.6rem 0 1rem 0;
 }
-.gx-card p { color: var(--gx-muted); font-size: 0.92rem; margin: 0; }
+.gx-card p { opacity: 0.8; font-size: 0.92rem; margin: 0; }
 
 [data-testid="stMetric"] {
-  background: var(--gx-card);
-  border: 1px solid var(--gx-line);
+  background: var(--st-secondary-background-color, var(--secondary-background-color, transparent));
+  border: 1px solid var(--st-border-color, var(--border-color, rgba(127,127,127,0.2)));
   border-radius: 16px;
   padding: 0.85rem 1rem;
 }
-[data-testid="stMetricLabel"] { color: var(--gx-muted) !important; font-weight: 600 !important; }
-[data-testid="stMetricValue"] {
-  color: var(--gx-text) !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.04em;
-}
+[data-testid="stMetricLabel"] { opacity: 0.7; font-weight: 600 !important; }
+[data-testid="stMetricValue"] { font-weight: 700 !important; letter-spacing: -0.04em; }
 
 div[data-testid="stProgress"] > div,
 div[data-testid="stProgressBar"] > div {
-  background: var(--gx-line) !important;
   border-radius: 999px !important;
   height: 10px !important;
 }
@@ -171,22 +111,16 @@ div[role="progressbar"] > div {
 .stButton > button {
   border-radius: 999px !important;
   font-weight: 650 !important;
-  border: 0 !important;
   letter-spacing: 0.01em;
 }
 .stButton > button[kind="primary"] {
-  background: var(--gx-accent) !important;
+  background: var(--st-primary-color, #1d9bf0) !important;
   color: #fff !important;
-}
-.stButton > button[kind="secondary"] {
-  background: var(--gx-accent-soft) !important;
-  color: var(--gx-accent) !important;
+  border: 0 !important;
 }
 
 [data-testid="stFileUploader"] {
-  border: 1px dashed var(--gx-line) !important;
   border-radius: 16px !important;
-  background: var(--gx-card);
 }
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
@@ -194,11 +128,12 @@ div[role="progressbar"] > div {
 [data-testid="stSelectbox"] > div {
   border-radius: 12px !important;
 }
-
-hr { border-color: var(--gx-line) !important; }
 </style>
 """
-    return head + rest
+
+
+def inject_css() -> None:
+    st.markdown(_APP_CSS, unsafe_allow_html=True)
 
 
 def _secrets_obj():
@@ -271,10 +206,6 @@ def format_usd(value: float) -> str:
     if v < 0.01:
         return f"${v:.6f}"
     return f"${v:.4f}"
-
-
-def inject_css() -> None:
-    st.markdown(_css_for(_active_theme()), unsafe_allow_html=True)
 
 
 def brand_header() -> None:

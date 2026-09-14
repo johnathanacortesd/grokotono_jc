@@ -315,16 +315,13 @@ class CostTests(unittest.TestCase):
 
 
 class ThemeCssTests(unittest.TestCase):
-    def test_explicit_light_and_dark_surfaces(self):
-        from app import _css_for
+    def test_css_does_not_force_white_app_background(self):
+        from app import _APP_CSS
 
-        dark = _css_for("dark")
-        light = _css_for("light")
-        self.assertIn("background: #000000", dark)
-        self.assertIn("color-scheme: dark", dark)
-        self.assertIn("background: #FFFFFF", light)
-        self.assertIn("color-scheme: light", light)
-        self.assertNotIn("st.dataframe", dark)
+        self.assertNotIn("background: #FFFFFF", _APP_CSS)
+        self.assertNotIn("background: #ffffff", _APP_CSS)
+        self.assertIn("1d9bf0", _APP_CSS.lower())
+        self.assertIn("stprogress", _APP_CSS.lower())
 
 
 if __name__ == "__main__":
