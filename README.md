@@ -1,19 +1,18 @@
-# Tono, tema y subtema por marca (Streamlit)
+# Tono y subtema por marca (Streamlit)
 
-App para clasificar **tono**, **tema** y **subtema** de noticias anclados a una
+App para clasificar **tono** y **subtema** de noticias anclados a una
 **marca**, sus **alias** y **voceros** (no al sentimiento general de la nota).
 
 Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON. El **subtema**
 se decide con el título + el **CuerpoEs completo** (misma ruta que el commit
 `18b79f6`). El **tono** se juzga solo por cómo aparecen marca / alias / voceros
 en los pasajes de mención (el título es apoyo). Después agrupa en local títulos
-o cuerpos parecidos (OCR) y, **aparte**, agrupa los subtemas ya finalizados en
-un `tema_AI` más general. Dentro de cada grupo de noticia —y entre filas que ya
+o cuerpos parecidos (OCR). Dentro de cada grupo de noticia —y entre filas que ya
 compartan el mismo subtema— el tono es **Positivo-first**.
 
 Pensada para analistas de medios en Colombia. El archivo de entrada es un
-`.xlsx` de menciones; la salida es el mismo Excel con `tono_AI`, `tema_AI` y
-`subtema_AI` (en ese orden). El `subtema_AI` no se reescribe al calcular el tema.
+`.xlsx` de menciones; la salida es el mismo Excel con `tono_AI` y
+`subtema_AI` (en ese orden). No hay columna `tema_AI`.
 
 ## Qué hace
 
@@ -23,8 +22,7 @@ Pensada para analistas de medios en Colombia. El archivo de entrada es un
    `Resumen` sirve si no hay cuerpo)
 4. Indicas marca, alias, voceros y ajustes **debajo** del archivo (no en
    una barra lateral)
-5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`), agrupa subtemas en
-   `tema_AI` y deja `subtema_AI` como en el paso anterior
+5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`) y `subtema_AI`
 6. Ves un resumen compacto (conteo de tono, tiempo, tokens y costo) y
    descargas el Excel **justo debajo del progreso**. No hay tablas de vista
    previa.
@@ -140,21 +138,13 @@ python3 -m unittest tests.test_postprocess -v
 - **Neutro** si solo es sede/escenario, o la historia es de otro. No uses
   Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema:** frase nominal de **3 a 6 palabras** que condensa el ángulo
+- **Subtema:** frase nominal de **3 a 5 palabras** que condensa el ángulo
   de la nota a partir del **cuerpo completo** (preferir **CuerpoEs**; se
   unen los saltos de línea de maquetación y se lee un tramo sustancial,
   no solo la primera línea). Sentence case; se conservan siglas. **No
   menciones la marca** en el subtema. No copies el título ni la primera
   línea del cuerpo. Noticias iguales o parecidas (OCR) → mismo subtema y
-  mismo tono; **Positivo** gana. El cálculo de `tema_AI` **no** regenera
-  ni «mejora» el subtema. La única diferencia frente a `18b79f6` es el
-  techo de **6** palabras (antes 5).
-- **Tema (`tema_AI`):** etiqueta temática real, un poco más amplia que el
-  subtema (máx. **4 palabras**). Español de Colombia, sentence case, sin
-  relleno de marca. **No** es un collage «palabra y palabra» con los
-  primeros tokens del subtema (mal: *Cocha y molina*, *Tamizaje y
-  nutricional*). Bien: *Celebración Cocha Molina*, *Tamizaje nutricional*.
-  Subtemas iguales o parecidos quedan con el **mismo** tema.
+  mismo tono; **Positivo** gana. Misma ruta que `18b79f6`.
 
 ## Estructura
 
@@ -173,7 +163,6 @@ src/
   io_xlsx.py
   normalize.py
   prompts.py
-  tema.py
   usage.py
 tests/
   test_postprocess.py
