@@ -50,7 +50,7 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
 }
 
 footer, .stDeployButton, [data-testid="stDecoration"],
-[data-testid="stAppDeployButton"], [data-testid="stToolbar"] {
+[data-testid="stAppDeployButton"] {
   display: none !important;
   visibility: hidden !important;
 }
