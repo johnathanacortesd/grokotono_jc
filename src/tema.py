@@ -2,6 +2,7 @@
 
 No reescribe subtema_AI: solo lee las cadenas ya limpias y les asigna un
 tema un poco más amplio (máx. 4 palabras, sentence case, sin marca).
+El tema es una etiqueta temática real, no un collage «palabra y palabra».
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ TEMA_MIN_WORDS = 2
 TEMA_MAX_WORDS = 4
 
 # Disparadores (texto plegado) → etiqueta un poco más general que el subtema.
+# Las frases con «y» aquí son rótulos fijos reales, no collages de tokens.
 TEMA_FAMILIES: list[tuple[frozenset[str], str]] = [
     (frozenset({"beca", "becas", "sostenimiento", "subsidio", "subsidios"}), "Becas y apoyos estudiantiles"),
     (frozenset({"diplomado", "diplomados", "formacion", "capacitacion"}), "Formación y diplomados"),
@@ -49,6 +51,8 @@ TEMA_FAMILIES: list[tuple[frozenset[str], str]] = [
     (frozenset({"suicidio", "suicidios", "jovenes"}), "Informes de salud"),
     (frozenset({"desempleo", "empleo", "ocupacion"}), "Informes de empleo"),
     (frozenset({"canal", "dique", "proyecto"}), "Proyectos de infraestructura"),
+    (frozenset({"celebro", "celebra", "celebraron", "celebracion", "festejo", "festeja", "aniversario", "conmemoracion", "homenaje"}), "Celebración institucional"),
+    (frozenset({"tamizaje", "nutricional", "nutricion", "cribado"}), "Tamizaje nutricional"),
 ]
 
 ACTION_HEADS = {
@@ -56,6 +60,23 @@ ACTION_HEADS = {
     "aprobacion", "inicio", "denuncia", "sancion", "revision", "impulso",
     "firma", "inauguracion", "encuentro", "evento", "gestion", "informe",
 }
+
+# Verbo conjugado al final del subtema → sustantivo temático al frente.
+EVENT_VERB_TO_NOUN = {
+    "celebro": "Celebración",
+    "celebra": "Celebración",
+    "celebraron": "Celebración",
+    "festejo": "Celebración",
+    "festeja": "Celebración",
+    "festejaron": "Celebración",
+    "conmemoro": "Celebración",
+    "conmemora": "Celebración",
+    "inauguro": "Inauguración",
+    "inaugura": "Inauguración",
+    "inauguraron": "Inauguración",
+}
+
+LOCATIVE_PREPS = {"en", "desde"}
 
 SUBTEMA_RATIO = 0.76
 SUBTEMA_LOOSE_RATIO = 0.62
@@ -129,6 +150,10 @@ def _clip_tema(phrase: str) -> str:
     return sentence_case(" ".join(words))
 
 
+def _family_labels() -> set[str]:
+    return {fold_text(label) for _triggers, label in TEMA_FAMILIES}
+
+
 def _family_label(phrases: Sequence[str]) -> str | None:
     bag: Counter[str] = Counter()
     for p in phrases:
@@ -146,13 +171,73 @@ def _family_label(phrases: Sequence[str]) -> str | None:
     return scored[0][2]
 
 
+def is_xy_token_collage(tema: str, source: str = "") -> bool:
+    """True si el tema es «X y Y» pegando los primeros tokens del subtema.
+
+    Se aceptan rótulos fijos de familia («Becas y apoyos estudiantiles»).
+    """
+    words = as_text(tema).split()
+    if len(words) != 3:
+        return False
+    if fold_text(words[1]) not in {"y", "e"}:
+        return False
+    folded = fold_text(tema)
+    if folded in _family_labels():
+        return False
+    if not source:
+        return True
+    cw = content_words(source)
+    if len(cw) < 2:
+        return False
+    return fold_text(words[0]) == cw[0] and fold_text(words[2]) == cw[1]
+
+
+def _drop_trailing_locative(words: list[str]) -> list[str]:
+    """Quita un complemento locativo final («en Soledad», «en el campus»)."""
+    if len(words) < 3:
+        return words
+    folded = [fold_text(w) for w in words]
+    for i, tok in enumerate(folded):
+        if tok not in LOCATIVE_PREPS or i < 2:
+            continue
+        remaining = strip_dangling(words[:i])
+        if len(remaining) >= TEMA_MIN_WORDS:
+            return remaining
+    return words
+
+
+def _from_event_verb(words: list[str]) -> str | None:
+    """«Cocha Molina celebró» → «Celebración Cocha Molina»."""
+    if not words:
+        return None
+    noun = EVENT_VERB_TO_NOUN.get(fold_text(words[-1]))
+    if not noun:
+        return None
+    rest = strip_dangling(words[:-1])
+    if rest:
+        return _clip_tema(f"{noun} {' '.join(rest[: TEMA_MAX_WORDS - 1])}")
+    return _clip_tema(f"{noun} institucional")
+
+
 def broaden_subtema(subtema: str) -> str:
     """Tema un poco más general que un subtema suelto (sin hermanos)."""
     phrase = as_text(subtema)
+    words = strip_dangling(phrase.split())
+
+    from_verb = _from_event_verb(words)
+    if from_verb and not is_xy_token_collage(from_verb, phrase):
+        return from_verb
+
     family = _family_label([phrase])
     if family:
-        return family
-    words = strip_dangling(phrase.split())
+        return _clip_tema(family)
+
+    dropped = _drop_trailing_locative(words)
+    if dropped != words and TEMA_MIN_WORDS <= len(dropped) <= TEMA_MAX_WORDS:
+        label = _clip_tema(" ".join(dropped))
+        if label and not is_xy_token_collage(label, phrase):
+            return label
+
     if words and fold_text(words[0]) in ACTION_HEADS and len(words) >= 3:
         rest = words[1:]
         if rest and fold_text(rest[0]) in {"de", "del", "la", "el"}:
@@ -160,35 +245,41 @@ def broaden_subtema(subtema: str) -> str:
             if rest and fold_text(rest[0]) in {"de", "del", "la", "el"}:
                 rest = rest[1:]
         rest = strip_dangling(rest)
+        rest = _drop_trailing_locative(rest)
         if len(rest) >= 2:
             broadened = _clip_tema(" ".join(rest[:TEMA_MAX_WORDS]))
-            if ocr_fold(broadened) != ocr_fold(phrase) and len(broadened.split()) >= TEMA_MIN_WORDS:
+            if (
+                ocr_fold(broadened) != ocr_fold(phrase)
+                and len(broadened.split()) >= TEMA_MIN_WORDS
+                and not is_xy_token_collage(broadened, phrase)
+            ):
                 return broadened
         if len(rest) == 1:
             return _clip_tema(f"{rest[0]} institucional")
+
+    candidate_words = dropped if dropped else words
+    if TEMA_MIN_WORDS <= len(candidate_words) <= TEMA_MAX_WORDS:
+        label = _clip_tema(" ".join(candidate_words))
+        if label and not is_xy_token_collage(label, phrase):
+            return label
+    if len(candidate_words) > TEMA_MAX_WORDS:
+        label = _clip_tema(" ".join(candidate_words[:TEMA_MAX_WORDS]))
+        if label and not is_xy_token_collage(label, phrase):
+            return label
+
     cw = content_words(phrase)
-    if len(cw) >= 2:
-        return _clip_tema(f"{cw[0]} y {cw[1]}")
     if cw:
         return _clip_tema(f"{cw[0]} institucional")
     return _clip_tema(phrase) or "Hecho informativo"
 
 
 def _shared_tema(phrases: Sequence[str]) -> str:
+    if len(phrases) == 1:
+        return broaden_subtema(phrases[0])
     family = _family_label(phrases)
     if family:
         return family
-    if len(phrases) == 1:
-        return broaden_subtema(phrases[0])
-    counts: Counter[str] = Counter()
-    for p in phrases:
-        counts.update(content_words(p))
-    common = [w for w, _n in counts.most_common(4) if w]
-    if len(common) >= 2:
-        return _clip_tema(f"{common[0]} y {common[1]}")
-    if common:
-        return broaden_subtema(max(phrases, key=len))
-    return broaden_subtema(phrases[0])
+    return broaden_subtema(max(phrases, key=lambda p: (len(p.split()), len(p))))
 
 
 def clean_tema(
@@ -196,13 +287,20 @@ def clean_tema(
     *,
     marca: str = "",
     aliases: Sequence[str] | None = None,
+    source_subtema: str = "",
 ) -> str:
+    source = as_text(source_subtema) or as_text(raw)
     phrase = strip_brand_mentions(as_text(raw), marca, aliases)
     phrase = _clip_tema(phrase)
-    if len(phrase.split()) < TEMA_MIN_WORDS:
-        extra = broaden_subtema(raw or phrase)
+    if len(phrase.split()) < TEMA_MIN_WORDS or is_xy_token_collage(phrase, source):
+        extra = broaden_subtema(source or phrase)
         extra = strip_brand_mentions(extra, marca, aliases)
-        phrase = _clip_tema(extra) or phrase
+        extra = _clip_tema(extra) or phrase
+        if extra and not is_xy_token_collage(extra, source):
+            phrase = extra
+    if is_xy_token_collage(phrase, source):
+        cw = content_words(source)
+        phrase = _clip_tema(f"{cw[0]} institucional") if cw else "Hecho informativo"
     return phrase or "Hecho informativo"
 
 
@@ -223,10 +321,12 @@ def assign_temas(
     clusters = cluster_subtema_indices(cleaned)
     out = [""] * len(cleaned)
     for members in clusters:
+        sources = [cleaned[i] for i in members]
         label = clean_tema(
-            _shared_tema([cleaned[i] for i in members]),
+            _shared_tema(sources),
             marca=marca,
             aliases=aliases,
+            source_subtema=sources[0],
         )
         for i in members:
             out[i] = label

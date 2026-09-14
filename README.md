@@ -48,35 +48,39 @@ api_key = "sk-..."
 Sin `APP_PASSWORD` o sin `OPENAI_API_KEY` la app se detiene con un mensaje
 claro. **No hay claves ni contraseñas en el repositorio.**
 
-### Aviso opcional por correo (uso / clientes)
+### Aviso por correo (interno; no hay expander en la UI)
 
-Tras **cada corrida exitosa** se appende una fila en `data/uso_clientes.csv`
-(timestamp, marca, alias, filas, conteos de tono, modelo, tiempo, costo) y,
-si hay canal SMTP o Resend en secrets, se envía un correo de aviso. El
-expander **Uso / clientes** muestra las últimas filas si el archivo existe.
+Tras **cada corrida exitosa** se appende `data/uso_clientes.csv` (timestamp,
+marca, alias, filas, conteos de tono, modelo, tiempo, costo, `email_status`)
+y **siempre se intenta** enviar un correo a
+**`cortesalexander8@gmail.com`**. Un fallo de correo **no** interrumpe la
+clasificación: el estado queda en el CSV y en un log de servidor
+(`[grokotono] email_status=…`). El log de uso **no** se muestra en la app.
 
-El destino por defecto (confirmado por A.C.) es
-**`cortesalexander8@gmail.com`**. Se puede anular con `USAGE_NOTIFY_EMAIL`.
-**No hay contraseñas SMTP ni API keys en el código**; van solo en secrets.
+Destino por defecto: **`cortesalexander8@gmail.com`**. Anulable con
+`USAGE_NOTIFY_EMAIL`. **No hay contraseñas SMTP ni API keys en el código.**
+
+Camino más simple: **Resend**. Pega esto en Secrets:
 
 ```toml
-# Opcional: anula el destino por defecto (cortesalexander8@gmail.com)
-# USAGE_NOTIFY_EMAIL = "otro@correo.com"
+RESEND_API_KEY = "re_..."
+USAGE_NOTIFY_EMAIL = "cortesalexander8@gmail.com"  # optional override
+USAGE_NOTIFY_FROM = "onboarding@resend.dev"  # or verified domain
+```
 
-# Opción A — SMTP
+También se aceptan formas anidadas, por ejemplo `[resend] api_key = "re_..."`.
+Si `RESEND_API_KEY` no está, se usa SMTP (`SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`). Si no hay ni Resend ni SMTP, el
+CSV anota `email_status=skipped_no_secrets` (una línea, para diagnosticar).
+
+```toml
+# Alternativa SMTP (solo si no hay RESEND_API_KEY)
 SMTP_HOST = "smtp.ejemplo.com"
 SMTP_PORT = "587"
 SMTP_USER = "usuario"
 SMTP_PASSWORD = "..."          # solo en secrets, nunca en el repo
 SMTP_FROM = "grokotono@ejemplo.com"
-
-# Opción B — Resend (si está RESEND_API_KEY se usa este canal)
-RESEND_API_KEY = "re_..."      # solo en secrets, nunca en el repo
-# SMTP_FROM o USAGE_NOTIFY_FROM = remitente verificado en Resend
 ```
-
-Sin `SMTP_HOST` y sin `RESEND_API_KEY` solo se escribe el CSV. Un fallo de
-correo no interrumpe la clasificación.
 
 **Caveat Streamlit Cloud:** el sistema de archivos es efímero. El CSV se pierde
 al reiniciar el contenedor salvo que uses un disco persistente (o copies el
@@ -100,7 +104,8 @@ El código está en [johnathanacortesd/grokotono_jc](https://github.com/johnatha
 2. Repository: `johnathanacortesd/grokotono_jc`. Branch: `main` (o la rama del PR).
 3. **Main file path:** `app.py`
 4. En *Advanced settings* elige **Python 3.12**.
-5. Pega los secrets `OPENAI_API_KEY` y `APP_PASSWORD`.
+5. Pega los secrets `OPENAI_API_KEY`, `APP_PASSWORD` y, para el aviso de
+   uso, `RESEND_API_KEY` (ver TOML más arriba).
 6. Deploy.
 
 Tema claro: fondo limpio con acento **naranja**. Oscuro: negro y naranja.
@@ -135,16 +140,19 @@ python3 -m unittest tests.test_postprocess -v
 - **Neutro** si solo es sede/escenario, o la historia es de otro. No uses
   Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema (congelado desde `18b79f6`):** frase nominal de **3 a 5 palabras**
-  a partir del **cuerpo completo** (preferir **CuerpoEs**). Sentence case;
-  se conservan siglas. **No menciones la marca.** No copies el título ni la
-  primera línea. Noticias iguales o parecidas (OCR) → mismo subtema y mismo
-  tono; **Positivo** gana. El cálculo de `tema_AI` **no** regenera ni
-  «mejora» el subtema.
-- **Tema (`tema_AI`):** más amplio que el subtema (máx. **4 palabras**).
-  Subtemas iguales o parecidos quedan con el **mismo** tema. Si un subtema
-  es único, igual recibe un tema un poco más general. Español de Colombia,
-  sentence case, sin relleno de marca.
+- **Subtema:** frase nominal de **máximo 6 palabras** (frase corta completa;
+  no recortar a mitad de sentido) a partir del **cuerpo completo** (preferir
+  **CuerpoEs**). Sentence case; se conservan siglas. **No menciones la
+  marca.** No copies el título ni la primera línea ni un extracto del cuerpo.
+  Noticias iguales o parecidas (OCR) → mismo subtema y mismo tono;
+  **Positivo** gana. El cálculo de `tema_AI` **no** regenera ni «mejora» el
+  subtema.
+- **Tema (`tema_AI`):** etiqueta temática real, un poco más amplia que el
+  subtema (máx. **4 palabras**). Español de Colombia, sentence case, sin
+  relleno de marca. **No** es un collage «palabra y palabra» con los
+  primeros tokens del subtema (mal: *Cocha y molina*, *Tamizaje y
+  nutricional*). Bien: *Celebración Cocha Molina*, *Tamizaje nutricional*.
+  Subtemas iguales o parecidos quedan con el **mismo** tema.
 
 ## Estructura
 

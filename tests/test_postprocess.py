@@ -66,7 +66,7 @@ class NormalizeTests(unittest.TestCase):
         )
         self.assertFalse(same_folded_phrase(out, titulo))
         self.assertNotEqual(ocr_fold(out), ocr_fold(titulo))
-        self.assertLessEqual(len(out.split()), 5)
+        self.assertLessEqual(len(out.split()), 6)
 
     def test_subtema_rejects_first_line_equal(self):
         first = "La rectoría presentó el informe anual de gestión"
@@ -111,7 +111,7 @@ class NormalizeTests(unittest.TestCase):
             aliases=["UdeA"],
         )
         self.assertNotIn("antioquia", fold_text(out))
-        self.assertLessEqual(len(out.split()), 5)
+        self.assertLessEqual(len(out.split()), 6)
         self.assertGreaterEqual(len(out.split()), 3)
 
     def test_normalize_body_joins_newlines(self):
@@ -136,6 +136,35 @@ class NormalizeTests(unittest.TestCase):
         )
         self.assertNotIn(",", out)
         self.assertGreaterEqual(len(out.split()), 3)
+
+    def test_clean_subtema_allows_six_word_phrase(self):
+        phrase = "Inicio de clases con alimentación escolar"
+        self.assertEqual(len(phrase.split()), 6)
+        out = clean_subtema(
+            phrase,
+            titulo="Otro titular distinto sobre el PAE departamental",
+            resumen=(
+                "El departamento arrancó el PAE el primer día de clases para 40 mil niños.\n"
+                "Segundo párrafo de contexto institucional sobre cobertura alimentaria."
+            ),
+            marca="Gobernación de Sucre",
+        )
+        self.assertEqual(out, phrase)
+        self.assertEqual(len(out.split()), 6)
+
+    def test_clean_subtema_keeps_cocha_molina_celebro(self):
+        out = clean_subtema(
+            "Cocha Molina celebró",
+            titulo="Otro titular de un acto protocolario en el campus",
+            resumen=(
+                "La rectoría adelantó un acto protocolario con la comunidad académica.\n"
+                "Hubo reconocimientos a docentes y estudiantes del semestre en curso."
+            ),
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+        )
+        self.assertEqual(out, "Cocha Molina celebró")
+        self.assertEqual(len(out.split()), 3)
 
     def test_tono_canonical(self):
         self.assertEqual(canonicalize_tono("POSITIVO"), "Positivo")
@@ -457,7 +486,7 @@ class PromptTests(unittest.TestCase):
     def test_prompt_biases_gestion_to_positivo(self):
         self.assertIn("Si el FOCO HACE la gestión, el tono es Positivo", SYSTEM_PROMPT)
         self.assertIn("NEUTRO — úsalo POCO", SYSTEM_PROMPT)
-        self.assertIn("3 a 5 palabras", SYSTEM_PROMPT)
+        self.assertIn("máximo 6 palabras", SYSTEM_PROMPT.lower())
         self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
         self.assertIn("saltos de línea", SYSTEM_PROMPT)
         self.assertIn("encuentros", SYSTEM_PROMPT.lower())
@@ -474,7 +503,7 @@ class PromptTests(unittest.TestCase):
         self.assertIn("CUERPO (CuerpoEs o Resumen; texto completo ya normalizado.", user)
         self.assertIn("Cuerpo largo de la nota.", user)
         self.assertIn("Encuentros, eventos, gestiones", user)
-        self.assertIn("SUBTEMA: 3 a 5 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
+        self.assertIn("SUBTEMA: máximo 6 palabras, frase corta completa, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
 
 
 class CostTests(unittest.TestCase):
@@ -506,7 +535,8 @@ class ThemeCssTests(unittest.TestCase):
         self.assertIn("CuerpoEs", src)
         self.assertIn("foco_y_ajuste", src)
         self.assertIn("dl_after_progress", src)
-        self.assertIn("Uso / clientes", src)
+        self.assertNotIn("Uso / clientes", src)
+        self.assertNotIn("render_uso_expander", src)
         cfg = Path(".streamlit/config.toml").read_text(encoding="utf-8")
         self.assertIn("FF6A00", cfg)
         self.assertIn("#000000", cfg)
@@ -526,14 +556,16 @@ DESEMPLEO_CUERPO = (
     + "."
 )
 
-# Bloque SUBTEMA del commit 18b79f6 (PR #3). No debe cambiar.
+# Bloque SUBTEMA (máx. 6 palabras; no recortar a mitad de sentido).
 FROZEN_SUBTEMA_PROMPT = """SUBTEMA
-Frase nominal CORTA y completa (típicamente 3 a 5 palabras; nunca larga)
+Frase nominal CORTA y completa (máximo 6 palabras; no recortes a mitad de sentido)
 en español colombiano que condensa el ÁNGULO del hecho a partir del CUERPO
 completo (CuerpoEs o Resumen). No es un collage, no es un recorte del título
 y no es la primera línea del cuerpo.
-- 3 a 5 palabras. Bien: "Entrega de becas de sostenimiento". Mal: una
-  oración larga o un titular reescrito.
+- Máximo 6 palabras. Prefiere una frase corta completa (4 a 6 está bien).
+  Bien: "Entrega de becas de sostenimiento". Bien: "Inicio de clases con
+  alimentación escolar". Bien: "Cocha Molina celebró". Mal: una oración
+  larga, un extracto del cuerpo o un titular reescrito.
 - NO menciones la MARCA, ni alias, ni el nombre de la institución en el
   subtema. El subtema es el tema/ángulo de la noticia, no una etiqueta de
   marca. Mal: "Universidad de Antioquia entrega becas". Bien: "Entrega de
@@ -613,7 +645,7 @@ class CollaboratorTonoTests(unittest.TestCase):
         self.assertNotEqual(tono, "Negativo")
         self.assertIn(tono, {"Neutro", "Positivo"})
         self.assertGreaterEqual(len(sub.split()), 3)
-        self.assertLessEqual(len(sub.split()), 5)
+        self.assertLessEqual(len(sub.split()), 6)
         self.assertFalse(same_folded_phrase(sub, DESEMPLEO_TITULO))
         self.assertFalse(same_folded_phrase(sub, first_content_line(DESEMPLEO_CUERPO)))
         folded = fold_text(sub)
@@ -670,7 +702,7 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
         start = SYSTEM_PROMPT.index("SUBTEMA\n")
         end = SYSTEM_PROMPT.index("Responde ÚNICAMENTE")
         self.assertEqual(SYSTEM_PROMPT[start:end], FROZEN_SUBTEMA_PROMPT)
-        self.assertIn("3 a 5 palabras", SYSTEM_PROMPT)
+        self.assertIn("máximo 6 palabras", SYSTEM_PROMPT.lower())
         self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
         self.assertIn("saltos de línea", SYSTEM_PROMPT)
         self.assertNotIn("tema_ai", SYSTEM_PROMPT.lower())
@@ -685,7 +717,7 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
         self.assertIn("CUERPO_COMPLETO_XYZ", user)
         self.assertIn("CUERPO (CuerpoEs o Resumen; texto completo ya normalizado.", user)
         self.assertIn("Analiza todo el bloque, no solo la primera oración ni la primera línea)", user)
-        self.assertIn("SUBTEMA: 3 a 5 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
+        self.assertIn("SUBTEMA: máximo 6 palabras, frase corta completa, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
         self.assertIn("Analiza el CUERPO completo (ya viene con saltos de línea unidos). No copies el titular ni el arranque.", user)
 
     def test_clean_subtema_snapshots_18b79f6(self):
@@ -711,7 +743,7 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
             _phrase_is_unusable,
         )
 
-        self.assertEqual(MAX_SUBTEMA_WORDS, 5)
+        self.assertEqual(MAX_SUBTEMA_WORDS, 6)
         self.assertEqual(MIN_SUBTEMA_WORDS, 3)
         self.assertTrue(inspect.getsource(clean_subtema).startswith("def clean_subtema("))
         self.assertIn("needs_fallback", inspect.getsource(clean_subtema))
@@ -808,6 +840,57 @@ class TemaGroupingTests(unittest.TestCase):
         self.assertEqual(out["tema_AI"].iloc[0], "Becas y apoyos estudiantiles")
         self.assertEqual(out["subtema_AI"].iloc[0], "Entrega de becas de sostenimiento")
 
+    def test_rejects_xy_collage_from_first_tokens(self):
+        from src.tema import is_xy_token_collage
+
+        cocha = "Cocha Molina celebró"
+        tema_cocha = broaden_subtema(cocha)
+        self.assertFalse(is_xy_token_collage(tema_cocha, cocha))
+        self.assertNotEqual(fold_text(tema_cocha), "cocha y molina")
+        self.assertNotIn(" y ", f" {fold_text(tema_cocha)} ")
+        self.assertLessEqual(len(tema_cocha.split()), 4)
+        self.assertGreaterEqual(len(tema_cocha.split()), 2)
+        self.assertIn("celebracion", fold_text(tema_cocha))
+        self.assertIn("cocha", fold_text(tema_cocha))
+
+        tamizaje = "Tamizaje nutricional en Soledad"
+        tema_tam = broaden_subtema(tamizaje)
+        self.assertFalse(is_xy_token_collage(tema_tam, tamizaje))
+        self.assertNotEqual(fold_text(tema_tam), "tamizaje y nutricional")
+        self.assertNotIn(" y ", f" {fold_text(tema_tam)} ")
+        self.assertLessEqual(len(tema_tam.split()), 4)
+        self.assertEqual(fold_text(tema_tam), "tamizaje nutricional")
+
+        self.assertTrue(is_xy_token_collage("Cocha y molina", cocha))
+        self.assertTrue(is_xy_token_collage("Tamizaje y nutricional", tamizaje))
+        self.assertFalse(is_xy_token_collage("Becas y apoyos estudiantiles", "Entrega de becas"))
+
+    def test_tema_from_sample_subtemas_sensible(self):
+        subs = [
+            "Cocha Molina celebró",
+            "Tamizaje nutricional en Soledad",
+            "Entrega de becas de sostenimiento",
+        ]
+        original = list(subs)
+        temas = assign_temas(subs, marca="Universidad de Antioquia", aliases=["UdeA"])
+        self.assertEqual(subs, original)
+        self.assertEqual(fold_text(temas[0]), "celebracion cocha molina")
+        self.assertEqual(fold_text(temas[1]), "tamizaje nutricional")
+        self.assertEqual(temas[2], "Becas y apoyos estudiantiles")
+        for tema in temas:
+            self.assertLessEqual(len(tema.split()), 4)
+            self.assertGreaterEqual(len(tema.split()), 2)
+
+    def test_clean_tema_rejects_xy_collage_input(self):
+        from src.tema import clean_tema
+
+        out = clean_tema(
+            "Cocha y molina",
+            source_subtema="Cocha Molina celebró",
+        )
+        self.assertNotEqual(fold_text(out), "cocha y molina")
+        self.assertIn("celebracion", fold_text(out))
+
 
 class UsageLogTests(unittest.TestCase):
     def test_record_and_read_csv(self):
@@ -843,7 +926,7 @@ class UsageLogTests(unittest.TestCase):
             {"marca": "UdeA", "n_rows": "1", "timestamp": "t"},
             secrets={},
         )
-        self.assertIsNone(status)
+        self.assertEqual(status, "skipped_no_secrets")
 
     def test_default_notify_email_and_override(self):
         from src.usage import DEFAULT_USAGE_NOTIFY_EMAIL, notify_destination
@@ -924,6 +1007,94 @@ class UsageLogTests(unittest.TestCase):
         self.assertNotIn("SMTP_PASSWORD='", Path("src/usage.py").read_text(encoding="utf-8"))
         self.assertNotIn("sk-", Path("src/usage.py").read_text(encoding="utf-8"))
         self.assertNotIn("re_prod", Path("src/usage.py").read_text(encoding="utf-8").lower())
+
+    def test_record_run_and_notify_writes_skipped_no_secrets(self):
+        import tempfile
+        from pathlib import Path
+
+        from src.usage import load_recent_runs, record_run_and_notify
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "uso_clientes.csv"
+            row = record_run_and_notify(
+                marca="Universidad de Antioquia",
+                aliases=["UdeA"],
+                n_rows=4,
+                tono_counts={"Positivo": 2, "Negativo": 1, "Neutro": 1},
+                model="gpt-4.1-nano-2025-04-14",
+                elapsed_s=1.5,
+                cost_usd=0.001,
+                secrets={},
+                path=path,
+            )
+            self.assertEqual(row["email_status"], "skipped_no_secrets")
+            loaded = load_recent_runs(path=path)
+            self.assertEqual(loaded[0]["email_status"], "skipped_no_secrets")
+            header = path.read_text(encoding="utf-8").splitlines()[0]
+            self.assertIn("email_status", header)
+
+    def test_nested_resend_secret_and_default_from(self):
+        from src.usage import DEFAULT_USAGE_NOTIFY_EMAIL, DEFAULT_USAGE_NOTIFY_FROM, maybe_notify_email
+
+        with patch("src.usage._send_resend") as send:
+            status = maybe_notify_email(
+                {"marca": "UdeA", "n_rows": "2", "timestamp": "t"},
+                secrets={"resend": {"api_key": "re_nested"}},
+            )
+        self.assertEqual(status, "resend")
+        send.assert_called_once()
+        kwargs = send.call_args.kwargs
+        self.assertEqual(kwargs["api_key"], "re_nested")
+        self.assertEqual(kwargs["to_addr"], DEFAULT_USAGE_NOTIFY_EMAIL)
+        self.assertEqual(kwargs["from_addr"], DEFAULT_USAGE_NOTIFY_FROM)
+        self.assertEqual(DEFAULT_USAGE_NOTIFY_FROM, "onboarding@resend.dev")
+
+    def test_prefers_resend_over_smtp(self):
+        from src.usage import maybe_notify_email
+
+        with patch("src.usage._send_resend") as send_resend, patch(
+            "src.usage._send_smtp"
+        ) as send_smtp:
+            status = maybe_notify_email(
+                {"marca": "UdeA", "n_rows": "1", "timestamp": "t"},
+                secrets={
+                    "RESEND_API_KEY": "re_test",
+                    "SMTP_HOST": "smtp.ejemplo.com",
+                    "SMTP_PASSWORD": "from-secrets-only",
+                },
+            )
+        self.assertEqual(status, "resend")
+        send_resend.assert_called_once()
+        send_smtp.assert_not_called()
+
+    def test_email_error_is_recorded_not_raised(self):
+        import tempfile
+        from pathlib import Path
+
+        from src.usage import record_run_and_notify
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "uso_clientes.csv"
+            with patch("src.usage._send_resend", side_effect=RuntimeError("boom resend")):
+                row = record_run_and_notify(
+                    marca="UdeA",
+                    n_rows=1,
+                    secrets={"RESEND_API_KEY": "re_test"},
+                    path=path,
+                )
+        self.assertTrue(row["email_status"].startswith("error:"))
+        self.assertIn("boom resend", row["email_status"])
+
+    def test_smtp_error_does_not_raise_from_maybe_notify(self):
+        from src.usage import maybe_notify_email
+
+        with patch("src.usage._send_smtp", side_effect=OSError("smtp down")):
+            status = maybe_notify_email(
+                {"marca": "UdeA", "n_rows": "1", "timestamp": "t"},
+                secrets={"SMTP_HOST": "smtp.ejemplo.com"},
+            )
+        self.assertTrue(status.startswith("error:"))
+        self.assertIn("smtp down", status)
 
 
 if __name__ == "__main__":

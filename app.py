@@ -24,7 +24,7 @@ from src.io_xlsx import (
     read_xlsx,
 )
 from src.normalize import parse_name_list
-from src.usage import load_recent_runs, maybe_notify_email, record_run
+from src.usage import record_run_and_notify
 
 st.set_page_config(
     page_title="grokotono",
@@ -407,36 +407,11 @@ def render_resultado(
     render_summary(resultado, stats)
 
 
-def render_uso_expander() -> None:
-    with st.expander("Uso / clientes", expanded=False):
-        st.caption(
-            "Registro local de corridas (`data/uso_clientes.csv`). "
-            "Tras cada corrida se avisa por correo a "
-            "`cortesalexander8@gmail.com` si hay SMTP o Resend en secrets "
-            "(anulable con `USAGE_NOTIFY_EMAIL`). "
-            "En Streamlit Cloud el disco suele reiniciarse salvo que haya "
-            "almacenamiento persistente."
-        )
-        try:
-            rows = load_recent_runs(12)
-        except Exception as exc:
-            st.caption(f"No se pudo leer el log: {exc}")
-            return
-        if not rows:
-            st.caption("Aún no hay corridas registradas en este servidor.")
-            return
-        preview = pd.DataFrame(rows)
-        keep = [c for c in (
-            "timestamp", "marca", "aliases", "n_rows",
-            "positivo", "negativo", "neutro", "model", "elapsed_s", "cost_usd",
-        ) if c in preview.columns]
-        st.dataframe(preview[keep], hide_index=True, use_container_width=True)
-
-
 def log_successful_run(resultado: pd.DataFrame, stats: dict, marca: str, aliases: list[str], model: str) -> None:
+    """CSV interno + intento de correo. Sin superficie en la UI."""
     conteo = resultado["tono_AI"].value_counts().to_dict() if "tono_AI" in resultado.columns else {}
     try:
-        row = record_run(
+        record_run_and_notify(
             marca=marca,
             aliases=aliases,
             n_rows=len(resultado),
@@ -444,13 +419,10 @@ def log_successful_run(resultado: pd.DataFrame, stats: dict, marca: str, aliases
             model=model,
             elapsed_s=float(stats.get("elapsed_s") or 0),
             cost_usd=stats.get("cost_total_usd"),
+            secrets=_secrets_obj(),
         )
-    except Exception:
-        return
-    try:
-        maybe_notify_email(row, secrets=_secrets_obj())
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[grokotono] usage log failed: {exc}", flush=True)
 
 
 def main() -> None:
@@ -474,9 +446,10 @@ def main() -> None:
   sobre un tema duro (p. ej. desempleo) **no** es Negativo.
 - **Neutro** solo si no hay vínculo evaluativo (sede, escenario, o la historia es de otro).
 
-El **subtema** es una frase nominal de **3 a 5 palabras**, sin el nombre de la marca,
+El **subtema** es una frase nominal de **máximo 6 palabras**, sin el nombre de la marca,
 distinta del título y de la primera línea del cuerpo. Prefiere la columna **CuerpoEs**.
-El **tema** agrupa subtemas ya listos en una etiqueta un poco más general (máx. 4 palabras).
+El **tema** agrupa subtemas ya listos en una etiqueta temática real (máx. 4 palabras),
+no un collage «palabra y palabra».
 Noticias parecidas (OCR incluido) quedan con el mismo subtema y tono; **Positivo** gana.
             """
         )
@@ -509,7 +482,6 @@ Noticias parecidas (OCR incluido) quedan con el mismo subtema y tono; **Positivo
                 download_key="dl_top_nofile",
             )
         st.caption("Sube el archivo. Después eliges columnas y el foco, en este mismo hilo.")
-        render_uso_expander()
         if st.button("Cerrar sesión"):
             st.session_state["auth_ok"] = False
             st.rerun()
@@ -667,8 +639,6 @@ Noticias parecidas (OCR incluido) quedan con el mismo subtema y tono; **Positivo
             st.session_state.get("archivo_nombre") or uploaded.name,
             download_key="dl_after_progress",
         )
-
-    render_uso_expander()
 
     if st.button("Cerrar sesión"):
         st.session_state["auth_ok"] = False
