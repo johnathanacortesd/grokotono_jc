@@ -36,43 +36,19 @@ APP_CSS = """
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 :root {
-  --gx-accent: #1d9bf0;
-  --gx-accent-soft: rgba(29, 155, 240, 0.14);
-  --gx-bg: #ffffff;
-  --gx-card: #f7f9f9;
-  --gx-text: #0f1419;
-  --gx-muted: #536471;
-  --gx-line: #eff3f4;
-  --gx-danger: #f4212e;
-  --gx-pos: #00ba7c;
-  --gx-neg: #f4212e;
+  --gx-accent: var(--st-primary-color, var(--primary-color, #1d9bf0));
+  --gx-bg: var(--st-background-color, var(--background-color, #ffffff));
+  --gx-card: var(--st-secondary-background-color, var(--secondary-background-color, #f7f9f9));
+  --gx-text: var(--st-text-color, var(--text-color, #0f1419));
+  --gx-line: var(--st-border-color, var(--border-color, #eff3f4));
+  --gx-muted: color-mix(in srgb, var(--gx-text) 62%, var(--gx-bg));
+  --gx-accent-soft: color-mix(in srgb, var(--gx-accent) 16%, transparent);
 }
 
-html[data-theme="dark"],
-[data-testid="stAppViewContainer"][data-theme="dark"],
-.stApp[data-theme="dark"],
-[data-theme="dark"] {
-  --gx-bg: #000000;
-  --gx-card: #16181c;
-  --gx-text: #e7e9ea;
-  --gx-muted: #71767b;
-  --gx-line: #2f3336;
-  --gx-accent-soft: rgba(29, 155, 240, 0.18);
-}
-
-@media (prefers-color-scheme: dark) {
-  html:not([data-theme="light"]) {
-    --gx-bg: #000000;
-    --gx-card: #16181c;
-    --gx-text: #e7e9ea;
-    --gx-muted: #71767b;
-    --gx-line: #2f3336;
-  }
-}
-
-html, body, .stApp, [data-testid="stAppViewContainer"] {
-  background: var(--background-color, var(--gx-bg)) !important;
-  color: var(--text-color, var(--gx-text));
+html, body, .stApp, [data-testid="stAppViewContainer"],
+[data-testid="stHeader"], [data-testid="stBottomBlockContainer"] {
+  background: var(--gx-bg) !important;
+  color: var(--gx-text) !important;
   font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif !important;
 }
 
@@ -82,23 +58,20 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
   max-width: 880px !important;
 }
 
-#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"],
-.stDeployButton, div[data-testid="stStatusWidget"] {
+footer, .stDeployButton, [data-testid="stDecoration"],
+[data-testid="stAppDeployButton"] {
   display: none !important;
   visibility: hidden !important;
 }
-header[data-testid="stHeader"] {
-  background: transparent !important;
-  height: 2.6rem;
-}
+header[data-testid="stHeader"] { background: transparent !important; }
 
 h1, h2, h3, p, label, .stMarkdown, .stCaption {
   font-family: Inter, "Segoe UI", system-ui, sans-serif !important;
 }
-h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; }
+h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; color: var(--gx-text); }
 
 [data-testid="stSidebar"] {
-  background: var(--secondary-background-color, var(--gx-card)) !important;
+  background: var(--gx-card) !important;
   border-right: 1px solid var(--gx-line);
 }
 [data-testid="stSidebar"] * {
@@ -111,7 +84,7 @@ h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; }
   font-weight: 700;
   letter-spacing: -0.06em;
   line-height: 1.1;
-  color: var(--text-color, var(--gx-text));
+  color: var(--gx-text);
 }
 .gx-mark span { color: var(--gx-accent); }
 .gx-tag {
@@ -122,7 +95,7 @@ h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; }
 }
 
 .gx-card {
-  background: var(--secondary-background-color, var(--gx-card));
+  background: var(--gx-card);
   border: 1px solid var(--gx-line);
   border-radius: 16px;
   padding: 1rem 1.1rem;
@@ -131,13 +104,17 @@ h1, h2, h3 { letter-spacing: -0.04em; font-weight: 700 !important; }
 .gx-card p { color: var(--gx-muted); font-size: 0.92rem; margin: 0; }
 
 [data-testid="stMetric"] {
-  background: var(--secondary-background-color, var(--gx-card));
+  background: var(--gx-card);
   border: 1px solid var(--gx-line);
   border-radius: 16px;
   padding: 0.85rem 1rem;
 }
 [data-testid="stMetricLabel"] { color: var(--gx-muted) !important; font-weight: 600 !important; }
-[data-testid="stMetricValue"] { font-weight: 700 !important; letter-spacing: -0.04em; }
+[data-testid="stMetricValue"] {
+  color: var(--gx-text) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.04em;
+}
 
 div[data-testid="stProgress"] > div,
 div[data-testid="stProgressBar"] > div {
@@ -171,7 +148,7 @@ div[role="progressbar"] > div {
 [data-testid="stFileUploader"] {
   border: 1px dashed var(--gx-line) !important;
   border-radius: 16px !important;
-  background: var(--secondary-background-color, var(--gx-card));
+  background: var(--gx-card);
 }
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
