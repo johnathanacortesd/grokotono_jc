@@ -9,15 +9,21 @@ import pandas as pd
 
 from src.classify import ClassifyStats, classify_rows, estimate_cost_usd
 from src.group import cluster_indices, positivo_first, propagate_labels
-from src.io_xlsx import dataframe_to_xlsx_bytes, guess_resumen_column, guess_title_column, read_xlsx
+from src.io_xlsx import dataframe_to_xlsx_bytes, guess_cuerpo_column, guess_resumen_column, guess_title_column, read_xlsx
 from src.normalize import (
     canonicalize_tono,
     clean_subtema,
+    first_content_line,
     focus_names,
+    fold_text,
     infer_focus_tono,
     mentions_target,
     name_variants,
+    normalize_body_text,
+    ocr_fold,
+    same_folded_phrase,
     sentence_case,
+    strip_brand_mentions,
     strip_dangling,
 )
 from src.prompts import SYSTEM_PROMPT
@@ -27,6 +33,92 @@ class NormalizeTests(unittest.TestCase):
     def test_dangling_endings(self):
         words = strip_dangling("Alimentación escolar de la".split())
         self.assertEqual(words[-1].lower(), "escolar")
+
+    def test_clean_subtema_strips_dangling_ending(self):
+        out = clean_subtema(
+            "Avance de obra de",
+            titulo="Otro titular sobre laboratorios en el campus",
+            resumen=(
+                "Avanzó la obra de laboratorios en el campus central.\n"
+                "Se instalaron equipos nuevos de investigación aplicada."
+            ),
+            marca="UdeA",
+        )
+        self.assertTrue(out)
+        self.assertNotIn(fold_text(out.split()[-1]), {
+            "de", "del", "la", "el", "en", "con", "por", "para", "y",
+        })
+
+    def test_subtema_rejects_title_equal(self):
+        titulo = "La Universidad entregó 400 becas de sostenimiento"
+        cuerpo = (
+            "La rectoría presentó cifras de cobertura del semestre.\n"
+            "El programa de sostenimiento benefició a estudiantes de estratos 1 y 2 "
+            "con giros mensuales durante el calendario académico."
+        )
+        out = clean_subtema(
+            titulo,
+            titulo=titulo,
+            resumen=cuerpo,
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+        )
+        self.assertFalse(same_folded_phrase(out, titulo))
+        self.assertNotEqual(ocr_fold(out), ocr_fold(titulo))
+        self.assertLessEqual(len(out.split()), 5)
+
+    def test_subtema_rejects_first_line_equal(self):
+        first = "La rectoría presentó el informe anual de gestión"
+        cuerpo = (
+            first
+            + "\nEl resto del artículo habla de acreditación de alta calidad "
+            "y nuevos programas de posgrado en ingeniería aplicada."
+        )
+        titulo = "Otro titular distinto sobre investigación aplicada"
+        out = clean_subtema(
+            first,
+            titulo=titulo,
+            resumen=cuerpo,
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+        )
+        self.assertEqual(first_content_line(cuerpo), first)
+        self.assertFalse(same_folded_phrase(out, first))
+        self.assertNotEqual(ocr_fold(out), ocr_fold(first))
+        self.assertFalse(same_folded_phrase(out, titulo))
+
+    def test_strip_brand_mentions_helper(self):
+        out = strip_brand_mentions(
+            "Universidad de Antioquia entrega becas de sostenimiento",
+            "Universidad de Antioquia",
+            ["UdeA"],
+        )
+        folded = fold_text(out)
+        self.assertNotIn("antioquia", folded)
+        self.assertNotIn("udea", folded)
+        self.assertIn("becas", folded)
+
+    def test_clean_subtema_omits_marca(self):
+        out = clean_subtema(
+            "Universidad de Antioquia entrega becas de sostenimiento",
+            titulo="Otra nota sobre ranking QS nacional de universidades",
+            resumen=(
+                "Se entregaron becas de sostenimiento a estudiantes de estratos 1 y 2.\n"
+                "El giro cubre alimentación y transporte durante el semestre en curso."
+            ),
+            marca="Universidad de Antioquia",
+            aliases=["UdeA"],
+        )
+        self.assertNotIn("antioquia", fold_text(out))
+        self.assertLessEqual(len(out.split()), 5)
+        self.assertGreaterEqual(len(out.split()), 3)
+
+    def test_normalize_body_joins_newlines(self):
+        raw = "Primera línea del lead\n\nSegundo párrafo con más contexto del hecho."
+        out = normalize_body_text(raw)
+        self.assertNotIn("\n", out)
+        self.assertIn("Segundo párrafo", out)
+        self.assertIn("Primera línea", out)
 
     def test_sentence_case_keeps_acronym(self):
         self.assertEqual(
@@ -171,6 +263,40 @@ class ClassifyPipelineTests(unittest.TestCase):
         self.assertEqual(tonos[1], "Positivo")
         self.assertEqual(subs[0], subs[1])
 
+    def test_sends_substantial_normalized_cuerpo(self):
+        titulo = "Entrega de apoyos de sostenimiento en el campus"
+        lead = "Lead corto de la nota."
+        rest = "Párrafo de desarrollo del hecho institucional con detalle. " * 90
+        cuerpo = lead + "\n" + rest
+        captured = {}
+
+        def fake_batch(client, items, **kwargs):
+            captured["resumen"] = items[0]["resumen"]
+            return {
+                items[0]["id"]: {
+                    "id": items[0]["id"],
+                    "tono": "Positivo",
+                    "subtema": "Entrega de apoyos",
+                }
+            }
+
+        with patch("src.classify.OpenAI"), patch(
+            "src.classify.classify_batch", side_effect=fake_batch
+        ):
+            classify_rows(
+                [titulo],
+                [cuerpo],
+                marca="Universidad de Antioquia",
+                aliases=["UdeA"],
+                voceros=[],
+                api_key="test",
+                batch_size=10,
+            )
+        self.assertNotIn("\n", captured["resumen"])
+        self.assertGreater(len(captured["resumen"]), 1200)
+        self.assertLessEqual(len(captured["resumen"]), 7100)
+        self.assertIn("desarrollo del hecho", captured["resumen"])
+
 
 class IoTests(unittest.TestCase):
     def test_guess_and_roundtrip(self):
@@ -186,6 +312,11 @@ class IoTests(unittest.TestCase):
         self.assertEqual(guess_title_column(back.columns), "Título")
         self.assertEqual(guess_resumen_column(back.columns), "Resumen")
         self.assertEqual(list(back.columns), list(df.columns))
+
+    def test_prefers_cuerposes_over_resumen(self):
+        cols = ["Título", "Resumen", "CuerpoEs", "Medio"]
+        self.assertEqual(guess_cuerpo_column(cols), "CuerpoEs")
+        self.assertEqual(guess_resumen_column(cols), "CuerpoEs")
 
 
 class FocusMatchingTests(unittest.TestCase):
@@ -301,6 +432,9 @@ class PromptTests(unittest.TestCase):
     def test_prompt_biases_gestion_to_positivo(self):
         self.assertIn("Si el FOCO HACE la gestión, el tono es Positivo", SYSTEM_PROMPT)
         self.assertIn("NEUTRO — úsalo POCO", SYSTEM_PROMPT)
+        self.assertIn("3 a 5 palabras", SYSTEM_PROMPT)
+        self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
+        self.assertIn("saltos de línea", SYSTEM_PROMPT)
         self.assertNotIn("Ante duda entre Positivo y Neutro, o entre Negativo y Neutro, elige Neutro", SYSTEM_PROMPT)
 
 
@@ -316,12 +450,20 @@ class CostTests(unittest.TestCase):
 
 class ThemeCssTests(unittest.TestCase):
     def test_css_does_not_force_white_app_background(self):
+        from pathlib import Path
+
         from app import _APP_CSS
 
         self.assertNotIn("background: #FFFFFF", _APP_CSS)
         self.assertNotIn("background: #ffffff", _APP_CSS)
         self.assertIn("1d9bf0", _APP_CSS.lower())
         self.assertIn("stprogress", _APP_CSS.lower())
+        self.assertIn("gx-progress-status", _APP_CSS)
+        src = Path("app.py").read_text(encoding="utf-8")
+        self.assertNotIn("st.sidebar", src)
+        self.assertIsNone(__import__("re").search(r"\.progress\([^)]*text\s*=", src))
+        self.assertIn("CuerpoEs", src)
+        self.assertIn("foco_y_ajuste", src)
 
 
 if __name__ == "__main__":

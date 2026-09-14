@@ -15,9 +15,11 @@ Pensada para analistas de medios en Colombia. El archivo de entrada es un
 ## Qué hace
 
 1. Pides la clave de acceso (`APP_PASSWORD`)
-2. Subes un `.xlsx`
-3. Eliges las columnas de **Título** y **Resumen**
-4. Indicas marca, alias y voceros (barra lateral)
+2. Subes un `.xlsx` (primero, en la columna principal)
+3. Eliges las columnas de **Título** y **cuerpo** (`CuerpoEs` se prefiere;
+   `Resumen` sirve si no hay cuerpo)
+4. Indicas marca, alias, voceros y ajustes **debajo** del archivo (no en
+   una barra lateral)
 5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`) y `subtema_AI`
 6. Ves un resumen compacto (conteo de tono, tiempo, tokens y costo) y
    descargas el Excel. No hay tablas de vista previa.
@@ -91,9 +93,13 @@ python3 -m unittest tests.test_postprocess -v
 - **Neutro** solo si no hay vínculo evaluativo (sede/escenario, o la historia
   es de otro). No uses Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema:** frase lógica que condensa el resumen. Sentence case; se
-  conservan siglas. No collage ni recorte del título.
-- Noticias iguales o parecidas (título **o** resumen, con OCR) → mismo
+- **Subtema:** frase nominal de **3 a 5 palabras** que condensa el ángulo
+  de la nota a partir del **cuerpo completo** (preferir **CuerpoEs**; se
+  unen los saltos de línea de maquetación y se lee un tramo sustancial,
+  no solo la primera línea). Sentence case; se conservan siglas. **No
+  menciones la marca** en el subtema. No copies el título ni la primera
+  línea del cuerpo.
+- Noticias iguales o parecidas (título **o** cuerpo, con OCR) → mismo
   subtema y mismo tono. Si alguna es Positivo, el grupo queda Positivo.
 
 ## Estructura
