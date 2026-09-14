@@ -23,6 +23,7 @@ from src.normalize import (
     normalize_body_text,
 )
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
+from src.tema import assign_temas
 
 ProgressFn = Callable[[float, str], None]
 
@@ -156,8 +157,10 @@ def _draft_row(
     marca: str,
     aliases: Sequence[str],
     voceros: Sequence[str],
+    pasajes: str | None = None,
 ) -> tuple[str, str]:
     raw = raw or {}
+    # Subtema: cuerpo completo, igual que 18b79f6. Los pasajes no lo alimentan.
     tono = canonicalize_tono(str(raw.get("tono") or raw.get("tone") or "Neutro"))
     sub = clean_subtema(
         str(raw.get("subtema") or raw.get("sub_tema") or raw.get("subtema_AI") or ""),
@@ -166,13 +169,27 @@ def _draft_row(
         marca=marca,
         aliases=aliases,
     )
-    mentioned = mentions_target(titulo, resumen, marca, aliases, voceros)
-    if tono in {"Positivo", "Negativo"} and not mentioned:
-        tono = "Neutro"
-    if tono == "Neutro" and mentioned:
-        hinted = infer_focus_tono(titulo, resumen, marca, aliases, voceros)
+    passages = (
+        pasajes
+        if pasajes is not None
+        else extract_brand_passages(titulo, resumen, marca, aliases, voceros)
+    )
+    if not passages:
+        hinted = infer_focus_tono(titulo, "", marca, aliases, voceros)
         if hinted in {"Positivo", "Negativo"}:
             tono = hinted
+        elif tono in {"Positivo", "Negativo"} and not mentions_target(
+            titulo, "", marca, aliases, voceros
+        ):
+            tono = "Neutro"
+        return tono, sub
+    hinted = infer_focus_tono(titulo, passages, marca, aliases, voceros)
+    # El modelo a veces pinta el tema (desempleo, crimen…) como Negativo:
+    # solo se conserva si la crítica apunta al FOCO.
+    if tono == "Negativo" and hinted != "Negativo":
+        tono = hinted if hinted == "Positivo" else "Neutro"
+    elif tono == "Neutro" and hinted in {"Positivo", "Negativo"}:
+        tono = hinted
     return tono, sub
 
 
@@ -187,7 +204,7 @@ def classify_rows(
     model: str = DEFAULT_MODEL,
     batch_size: int = 10,
     progress: ProgressFn | None = None,
-) -> tuple[list[str], list[str], ClassifyStats]:
+) -> tuple[list[str], list[str], list[str], ClassifyStats]:
     aliases = list(aliases or [])
     voceros = list(voceros or [])
     stats = ClassifyStats(model=model or DEFAULT_MODEL)
@@ -252,6 +269,7 @@ def classify_rows(
                 marca,
                 aliases,
                 voceros,
+                pasajes=items[i - start]["pasajes"],
             )
             drafts_tono[i] = tono
             drafts_sub[i] = sub
@@ -279,10 +297,13 @@ def classify_rows(
         aliases=aliases,
         exclude_tokens=exclude,
     )
+    if progress:
+        progress(0.96, "Agrupando subtemas en temas…")
+    out_tema = assign_temas(out_sub, marca=marca, aliases=aliases)
     stats.elapsed_s = time.perf_counter() - t0
     if progress:
         progress(1.0, "Clasificación terminada.")
-    return out_tono, out_sub, stats
+    return out_tono, out_sub, out_tema, stats
 
 
 def classify_dataframe(
@@ -293,10 +314,13 @@ def classify_dataframe(
 ):
     titles = df[title_col].tolist()
     resumenes = df[resumen_col].tolist()
-    tonos, subtemas, stats = classify_rows(titles, resumenes, **kwargs)
+    tonos, subtemas, temas, stats = classify_rows(titles, resumenes, **kwargs)
     out = df.copy()
-    out = out.drop(columns=[c for c in ("tono_AI", "subtema_AI") if c in out.columns])
+    drop = [c for c in ("tono_AI", "tema_AI", "subtema_AI") if c in out.columns]
+    if drop:
+        out = out.drop(columns=drop)
     out["tono_AI"] = tonos
+    out["tema_AI"] = temas
     out["subtema_AI"] = subtemas
-    cols = [c for c in out.columns if c not in {"tono_AI", "subtema_AI"}]
-    return out[cols + ["tono_AI", "subtema_AI"]], stats
+    cols = [c for c in out.columns if c not in {"tono_AI", "tema_AI", "subtema_AI"}]
+    return out[cols + ["tono_AI", "tema_AI", "subtema_AI"]], stats

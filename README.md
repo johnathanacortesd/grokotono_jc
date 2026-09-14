@@ -1,16 +1,19 @@
-# Tono y subtema por marca (Streamlit)
+# Tono, tema y subtema por marca (Streamlit)
 
-App para clasificar **tono** y **subtema** de noticias anclados a una **marca**,
-sus **alias** y **voceros** (no al sentimiento general de la nota).
+App para clasificar **tono**, **tema** y **subtema** de noticias anclados a una
+**marca**, sus **alias** y **voceros** (no al sentimiento general de la nota).
 
-Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON y, después,
-agrupa en local títulos o resúmenes parecidos (incluyendo errores típicos de
-OCR). Dentro de cada grupo —y entre filas que ya compartan el mismo subtema—
-el tono es **Positivo-first**: si alguna mención es Positivo, el grupo queda
-Positivo.
+Usa OpenAI (`gpt-4.1-nano-2025-04-14` por defecto) en lotes JSON. El **subtema**
+se decide con el título + el **CuerpoEs completo** (misma ruta que el commit
+`18b79f6`). El **tono** se juzga solo por cómo aparecen marca / alias / voceros
+en los pasajes de mención (el título es apoyo). Después agrupa en local títulos
+o cuerpos parecidos (OCR) y, **aparte**, agrupa los subtemas ya finalizados en
+un `tema_AI` más general. Dentro de cada grupo de noticia —y entre filas que ya
+compartan el mismo subtema— el tono es **Positivo-first**.
 
 Pensada para analistas de medios en Colombia. El archivo de entrada es un
-`.xlsx` de menciones; la salida es el mismo Excel con `tono_AI` y `subtema_AI`.
+`.xlsx` de menciones; la salida es el mismo Excel con `tono_AI`, `tema_AI` y
+`subtema_AI` (en ese orden). El `subtema_AI` no se reescribe al calcular el tema.
 
 ## Qué hace
 
@@ -20,9 +23,11 @@ Pensada para analistas de medios en Colombia. El archivo de entrada es un
    `Resumen` sirve si no hay cuerpo)
 4. Indicas marca, alias, voceros y ajustes **debajo** del archivo (no en
    una barra lateral)
-5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`) y `subtema_AI`
+5. Genera `tono_AI` (`Positivo` | `Negativo` | `Neutro`), agrupa subtemas en
+   `tema_AI` y deja `subtema_AI` como en el paso anterior
 6. Ves un resumen compacto (conteo de tono, tiempo, tokens y costo) y
-   descargas el Excel. No hay tablas de vista previa.
+   descargas el Excel **justo debajo del progreso**. No hay tablas de vista
+   previa.
 
 ## Secrets (Streamlit Cloud)
 
@@ -42,6 +47,37 @@ api_key = "sk-..."
 
 Sin `APP_PASSWORD` o sin `OPENAI_API_KEY` la app se detiene con un mensaje
 claro. **No hay claves ni contraseñas en el repositorio.**
+
+### Aviso opcional por correo (uso / clientes)
+
+Tras cada corrida exitosa se appende una fila en `data/uso_clientes.csv`
+(timestamp, marca, alias, filas, conteos de tono, modelo, tiempo, costo).
+El expander **Uso / clientes** muestra las últimas filas si el archivo existe.
+
+**Caveat Streamlit Cloud:** el sistema de archivos es efímero. El CSV se pierde
+al reiniciar el contenedor salvo que uses un disco persistente (o copies el
+log a otro almacenamiento). En un servidor propio el archivo sí queda.
+
+Para recibir un correo por corrida, agrega destino y **uno** de los dos
+canales:
+
+```toml
+USAGE_NOTIFY_EMAIL = "tu@correo.com"
+
+# Opción A — SMTP
+SMTP_HOST = "smtp.ejemplo.com"
+SMTP_PORT = "587"
+SMTP_USER = "usuario"
+SMTP_PASSWORD = "..."
+SMTP_FROM = "grokotono@ejemplo.com"
+
+# Opción B — Resend (si no hay SMTP_HOST)
+RESEND_API_KEY = "re_..."
+# SMTP_FROM o USAGE_NOTIFY_FROM = remitente verificado en Resend
+```
+
+Si no hay `USAGE_NOTIFY_EMAIL`, solo se escribe el CSV. Un fallo de correo
+no interrumpe la clasificación.
 
 ## Costo API (gpt-4.1-nano)
 
@@ -64,7 +100,8 @@ El código está en [johnathanacortesd/grokotono_jc](https://github.com/johnatha
 5. Pega los secrets `OPENAI_API_KEY` y `APP_PASSWORD`.
 6. Deploy.
 
-En la app, el tema claro/oscuro de Streamlit (Settings) usa acento cian tipo X/Grok.
+Tema claro: fondo limpio con acento **naranja**. Oscuro: negro y naranja.
+En Settings de Streamlit se cambia claro/oscuro.
 
 ## Uso local
 
@@ -86,21 +123,25 @@ python3 -m unittest tests.test_postprocess -v
 
 ## Reglas (resumen)
 
-- **Positivo** si el foco (marca / alias / voceros) es agente de una gestión o
-  logro aunque el texto no traiga adjetivos: *la Universidad entregó…*,
-  *avanzó la obra…*, *lanzó el programa…*, rankings, becas, convenios.
+- **Tono** = cómo se trata al FOCO en los pasajes de mención + título. No es
+  el sentimiento de la noticia. Colaborar en un estudio sobre desempleo
+  (u otro problema social) **no** es Negativo para la marca.
+- **Positivo** si el foco es agente de un **encuentro, evento, gestión,
+  entrega o avance**, aunque el texto no traiga adjetivos.
 - **Negativo** si la crítica o la queja apunta al foco.
-- **Neutro** solo si no hay vínculo evaluativo (sede/escenario, o la historia
-  es de otro). No uses Neutro para gestiones «solo descriptivas» del foco.
+- **Neutro** si solo es sede/escenario, o la historia es de otro. No uses
+  Neutro para gestiones «solo descriptivas» del foco.
 - Nombre largo, nombre corto, sigla y voceros listados = la misma entidad.
-- **Subtema:** frase nominal de **3 a 5 palabras** que condensa el ángulo
-  de la nota a partir del **cuerpo completo** (preferir **CuerpoEs**; se
-  unen los saltos de línea de maquetación y se lee un tramo sustancial,
-  no solo la primera línea). Sentence case; se conservan siglas. **No
-  menciones la marca** en el subtema. No copies el título ni la primera
-  línea del cuerpo.
-- Noticias iguales o parecidas (título **o** cuerpo, con OCR) → mismo
-  subtema y mismo tono. Si alguna es Positivo, el grupo queda Positivo.
+- **Subtema (congelado desde `18b79f6`):** frase nominal de **3 a 5 palabras**
+  a partir del **cuerpo completo** (preferir **CuerpoEs**). Sentence case;
+  se conservan siglas. **No menciones la marca.** No copies el título ni la
+  primera línea. Noticias iguales o parecidas (OCR) → mismo subtema y mismo
+  tono; **Positivo** gana. El cálculo de `tema_AI` **no** regenera ni
+  «mejora» el subtema.
+- **Tema (`tema_AI`):** más amplio que el subtema (máx. **4 palabras**).
+  Subtemas iguales o parecidos quedan con el **mismo** tema. Si un subtema
+  es único, igual recibe un tema un poco más general. Español de Colombia,
+  sentence case, sin relleno de marca.
 
 ## Estructura
 
@@ -109,6 +150,9 @@ app.py
 requirements.txt
 README.md
 .streamlit/config.toml
+data/
+  .gitkeep
+  uso_clientes.csv   # se crea en runtime (no va al git)
 src/
   __init__.py
   classify.py
@@ -116,6 +160,8 @@ src/
   io_xlsx.py
   normalize.py
   prompts.py
+  tema.py
+  usage.py
 tests/
   test_postprocess.py
 ```
