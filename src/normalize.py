@@ -33,8 +33,8 @@ GENERIC_SUBTEMAS = {
     "información general", "cobertura informativa", "temas generales",
 }
 
-# Subtema: frase corta (3–5 palabras). El cuerpo se lee en tramo sustancial.
-MAX_SUBTEMA_WORDS = 5
+# Subtema: frase corta completa (máx. 6 palabras). El cuerpo se lee en tramo sustancial.
+MAX_SUBTEMA_WORDS = 6
 MIN_SUBTEMA_WORDS = 3
 DEFAULT_BODY_CHARS = 7000
 
