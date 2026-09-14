@@ -7,35 +7,35 @@ gatherUsageStats = false
 
 [theme]
 base = "light"
-primaryColor = "#FF6A00"
+primaryColor = "#1D9BF0"
 font = "sans serif"
 baseRadius = "large"
 buttonRadius = "full"
 
 [theme.light]
-primaryColor = "#FF6A00"
+primaryColor = "#1D9BF0"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F7F7F5"
-textColor = "#0A0A0A"
-linkColor = "#FF6A00"
-borderColor = "#ECECE8"
+secondaryBackgroundColor = "#F7F9F9"
+textColor = "#0F1419"
+linkColor = "#1D9BF0"
+borderColor = "#EFF3F4"
 
 [theme.dark]
-primaryColor = "#FF6A00"
+primaryColor = "#1D9BF0"
 backgroundColor = "#000000"
-secondaryBackgroundColor = "#121212"
-textColor = "#EDEDED"
-linkColor = "#FF8A33"
-borderColor = "#2A2A2A"
+secondaryBackgroundColor = "#16181C"
+textColor = "#E7E9EA"
+linkColor = "#1D9BF0"
+borderColor = "#2F3336"
 
 [theme.light.sidebar]
-backgroundColor = "#F7F7F5"
-secondaryBackgroundColor = "#ECECE8"
-textColor = "#0A0A0A"
-borderColor = "#ECECE8"
+backgroundColor = "#F7F9F9"
+secondaryBackgroundColor = "#EFF3F4"
+textColor = "#0F1419"
+borderColor = "#EFF3F4"
 
 [theme.dark.sidebar]
 backgroundColor = "#000000"
-secondaryBackgroundColor = "#121212"
-textColor = "#EDEDED"
-borderColor = "#2A2A2A"
+secondaryBackgroundColor = "#16181C"
+textColor = "#E7E9EA"
+borderColor = "#2F3336"

@@ -19,6 +19,7 @@ from src.normalize import (
     clean_subtema,
     extract_brand_passages,
     infer_focus_tono,
+    mentions_target,
     normalize_body_text,
 )
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
@@ -27,7 +28,6 @@ ProgressFn = Callable[[float, str], None]
 
 DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 BODY_MAX_CHARS = 7000
-PASSAGE_MAX_CHARS = 4000
 
 # Tarifas configurables gpt-4.1-nano (USD por 1 millón de tokens).
 INPUT_USD_PER_1M_TOKENS = 0.10
@@ -156,14 +156,8 @@ def _draft_row(
     marca: str,
     aliases: Sequence[str],
     voceros: Sequence[str],
-    pasajes: str | None = None,
 ) -> tuple[str, str]:
     raw = raw or {}
-    passages = (
-        pasajes
-        if pasajes is not None
-        else extract_brand_passages(titulo, resumen, marca, aliases, voceros)
-    )
     tono = canonicalize_tono(str(raw.get("tono") or raw.get("tone") or "Neutro"))
     sub = clean_subtema(
         str(raw.get("subtema") or raw.get("sub_tema") or raw.get("subtema_AI") or ""),
@@ -172,17 +166,13 @@ def _draft_row(
         marca=marca,
         aliases=aliases,
     )
-    if not passages:
-        hinted = infer_focus_tono(titulo, "", marca, aliases, voceros)
-        tono = hinted if hinted in {"Positivo", "Negativo"} else "Neutro"
-        return tono, sub
-    hinted = infer_focus_tono(titulo, passages, marca, aliases, voceros)
-    # El modelo a veces pinta el tema (desempleo, crimen…) como Negativo:
-    # solo se conserva si la crítica apunta al FOCO.
-    if tono == "Negativo" and hinted != "Negativo":
-        tono = hinted if hinted == "Positivo" else "Neutro"
-    elif tono == "Neutro" and hinted in {"Positivo", "Negativo"}:
-        tono = hinted
+    mentioned = mentions_target(titulo, resumen, marca, aliases, voceros)
+    if tono in {"Positivo", "Negativo"} and not mentioned:
+        tono = "Neutro"
+    if tono == "Neutro" and mentioned:
+        hinted = infer_focus_tono(titulo, resumen, marca, aliases, voceros)
+        if hinted in {"Positivo", "Negativo"}:
+            tono = hinted
     return tono, sub
 
 
@@ -224,15 +214,14 @@ def classify_rows(
             titulo = as_text(titles[i])
             cuerpo_raw = as_text(resumenes[i])
             cuerpo = normalize_body_text(cuerpo_raw, max_chars=BODY_MAX_CHARS)
-            pasajes = extract_brand_passages(
-                titulo, cuerpo_raw, marca, aliases, voceros, max_chars=PASSAGE_MAX_CHARS
-            )
             items.append(
                 {
                     "id": i,
                     "titulo": titulo[:280],
-                    "pasajes": pasajes,
                     "resumen": cuerpo,
+                    "pasajes": extract_brand_passages(
+                        titulo, cuerpo_raw, marca, aliases, voceros
+                    )[:1800],
                 }
             )
         lo, hi = chunk_ids[0] + 1, chunk_ids[-1] + 1
@@ -263,7 +252,6 @@ def classify_rows(
                 marca,
                 aliases,
                 voceros,
-                pasajes=items[i - start]["pasajes"],
             )
             drafts_tono[i] = tono
             drafts_sub[i] = sub
@@ -307,9 +295,7 @@ def classify_dataframe(
     resumenes = df[resumen_col].tolist()
     tonos, subtemas, stats = classify_rows(titles, resumenes, **kwargs)
     out = df.copy()
-    drop = [c for c in ("tono_AI", "tema_AI", "subtema_AI") if c in out.columns]
-    if drop:
-        out = out.drop(columns=drop)
+    out = out.drop(columns=[c for c in ("tono_AI", "subtema_AI") if c in out.columns])
     out["tono_AI"] = tonos
     out["subtema_AI"] = subtemas
     cols = [c for c in out.columns if c not in {"tono_AI", "subtema_AI"}]
