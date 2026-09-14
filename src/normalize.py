@@ -15,6 +15,59 @@ DANGLING = {
     "entre", "ni", "lo", "le", "les", "más", "mas",
 }
 
+# Cierre de recorte: copulativos, auxiliares y 3.ª persona. No son etiqueta nominal.
+FINITE_TAIL = {
+    "tienen", "tiene", "estan", "esta", "son", "es", "fue", "fueron",
+    "hay", "hace", "hacen", "puede", "pueden", "debe", "deben",
+    "van", "va", "voy", "vamos", "ser", "estar", "ir",
+    "habia", "habian", "era", "eran", "sera", "seran", "sido",
+    "dice", "dicen", "dijo", "dijeron",
+    "anuncia", "anuncian", "anuncio", "anunciaron",
+    "participa", "participan", "participo", "participaron",
+    "realiza", "realizan", "realizo", "realizaron",
+    "llego", "llega", "llegan", "llegaron",
+    "revela", "revelo", "revelan", "revelaron",
+    "presenta", "presentan", "presento", "presentaron",
+    "confirma", "confirman", "confirmo", "confirmaron",
+    "indica", "indican", "indico", "indicaron",
+    "explica", "explican", "explico", "explicaron",
+    "senala", "senalan", "senalo", "senalaron",
+    "quiere", "quieren", "busca", "buscan",
+    "permite", "permiten", "incluye", "incluyen",
+    "sancionan", "sanciono", "sancionaron",
+    "entregan", "entrego", "entregaron",
+    "lanzan", "lanzo", "lanzaron",
+    "celebra", "celebran", "celebro", "celebraron",
+}
+
+# Homógrafos válidos como cabeza nominal (no rechazar «Entrega de becas»).
+NOMINAL_HEADS = {
+    "entrega", "denuncia", "protesta", "firma", "marcha", "ayuda",
+    "falta", "espera", "lucha", "visita", "reunion", "encuentro",
+    "informe", "estudio", "sancion", "inicio", "avance", "lanzamiento",
+    "aprobacion", "revision", "participacion", "inauguracion",
+}
+
+NARRATIVE_START = {
+    "durante", "segun", "tras", "cuando", "mientras", "aunque",
+    "despues", "luego", "entonces", "asi", "ahora", "hoy", "ayer",
+    "ademas", "tambien", "finalmente", "posteriormente", "ante",
+}
+
+CLAUSE_ARTICLES = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas",
+    "este", "esta", "estos", "estas", "al",
+}
+
+_FINITE_SUFFIXES = (
+    "aron", "ieron", "aban", "ian", "aran", "eran", "iran", "ando", "iendo",
+)
+_NOUNISH_SUFFIXES = (
+    "cion", "sion", "miento", "dad", "eza", "ancia", "encia", "aje", "ura",
+    "ismo", "ista", "eria",
+)
+EXTRACT_SPAN_WORDS = 4
+
 STOPWORDS = DANGLING | {
     "es", "son", "fue", "fueron", "ser", "esta", "este", "estos", "estas",
     "hay", "nos", "me", "te", "tu", "muy", "ya", "si", "no", "tambien",
@@ -600,6 +653,82 @@ def looks_like_title_or_lead(subtema: str, titulo: str, cuerpo: str) -> bool:
     return looks_like_title_scrap(subtema, titulo)
 
 
+def _folded_is_finite_verb(token: str, *, allow_nominal_head: bool = False) -> bool:
+    f = fold_text(token)
+    if not f:
+        return False
+    if allow_nominal_head and f in NOMINAL_HEADS:
+        return False
+    if f in FINITE_TAIL:
+        return True
+    if any(f.endswith(suf) for suf in _NOUNISH_SUFFIXES):
+        return False
+    if f in NOMINAL_HEADS:
+        return False
+    return any(f.endswith(suf) and len(f) >= len(suf) + 3 for suf in _FINITE_SUFFIXES)
+
+
+def looks_like_truncated_clause(phrase: str) -> bool:
+    """True si es cláusula a medias: nexo narrativo, sujeto+verbo o verbo colgando."""
+    words = [w for w in as_text(phrase).split() if w]
+    if not words:
+        return True
+    last = fold_text(words[-1])
+    if last in DANGLING or _folded_is_finite_verb(words[-1]):
+        return True
+    first = fold_text(words[0])
+    if first in NARRATIVE_START:
+        return True
+    folded = fold_text(phrase)
+    if folded.startswith("despues de"):
+        return True
+    if first in CLAUSE_ARTICLES:
+        if any(_folded_is_finite_verb(w) for w in words[1:]):
+            return True
+    for i, w in enumerate(words):
+        if i == 0:
+            continue
+        if _folded_is_finite_verb(w):
+            return True
+    if _folded_is_finite_verb(words[0], allow_nominal_head=True):
+        return True
+    return False
+
+
+def _is_consecutive_span(needle: Sequence[str], hay: Sequence[str]) -> bool:
+    n = len(needle)
+    if n < EXTRACT_SPAN_WORDS or len(hay) < n:
+        return False
+    needle_l = list(needle)
+    for i in range(len(hay) - n + 1):
+        if list(hay[i : i + n]) == needle_l:
+            return True
+    return False
+
+
+def looks_like_body_extract(subtema: str, titulo: str, cuerpo: str) -> bool:
+    """True si el subtema es un recorte de una oración cruda del título/cuerpo."""
+    phrase = as_text(subtema)
+    words = phrase.split()
+    if len(words) < EXTRACT_SPAN_WORDS:
+        return False
+    fw = ocr_fold(phrase).split()
+    if len(fw) < EXTRACT_SPAN_WORDS:
+        return False
+    sources = [as_text(titulo), first_content_line(cuerpo)]
+    sources.extend(_split_sentences(cuerpo)[:48])
+    for src in sources:
+        sw = ocr_fold(src).split()
+        if not sw:
+            continue
+        if sw[: len(fw)] == fw and len(sw) >= len(fw) + 2:
+            return True
+        if _is_consecutive_span(fw, sw) and len(sw) >= len(fw) + 2:
+            if looks_like_truncated_clause(phrase):
+                return True
+    return False
+
+
 def strip_brand_mentions(
     phrase: str,
     marca: str,
@@ -671,6 +800,10 @@ def _phrase_is_unusable(phrase: str, titulo: str, cuerpo: str) -> bool:
         return True
     if looks_like_collage(phrase) or looks_like_title_or_lead(phrase, titulo, cuerpo):
         return True
+    if looks_like_truncated_clause(phrase):
+        return True
+    if looks_like_body_extract(phrase, titulo, cuerpo):
+        return True
     return False
 
 
@@ -727,6 +860,15 @@ def clean_subtema(
         )
         if alt and not _phrase_is_unusable(alt, titulo, resumen):
             phrase = alt
+    if _phrase_is_unusable(phrase, titulo, resumen):
+        nom = _nominal_from_title(titulo, marca, aliases)
+        nom = _finalize_subtema(
+            nom, titulo=titulo, resumen=resumen, marca=marca, aliases=aliases
+        )
+        if nom and not _phrase_is_unusable(nom, titulo, resumen):
+            phrase = nom
+        else:
+            phrase = ""
     return phrase or "Hecho informativo"
 
 
@@ -749,6 +891,115 @@ def _source_tokens(resumen: str, titulo: str) -> tuple[list[str], str]:
     )
     tokens = re.sub(r"[,.;:!?¿¡\"'()\[\]{}]", " ", source).split()
     return tokens, lead
+
+
+_VERB_TO_NOUN = (
+    (("participa", "participan", "participo", "participaron", "participar", "participacion"), "Participación"),
+    (("entrega", "entregan", "entrego", "entregaron", "entregar"), "Entrega"),
+    (("lanza", "lanzan", "lanzo", "lanzaron", "lanzar", "lanzamiento"), "Lanzamiento"),
+    (("inaugura", "inauguran", "inauguro", "inauguraron", "inauguracion"), "Inauguración"),
+    (("firma", "firman", "firmo", "firmaron"), "Firma"),
+    (("protesta", "protestan", "protestaron"), "Protesta"),
+    (("denuncia", "denuncian", "denuncio", "denunciaron"), "Denuncia"),
+    (("sanciona", "sancionan", "sanciono", "sancionaron", "sancion"), "Sanción"),
+    (("anuncia", "anuncian", "anuncio", "anunciaron"), "Anuncio"),
+    (("avanza", "avanzan", "avanzo", "avanzaron", "avance"), "Avance"),
+    (("aprueba", "aprueban", "aprobo", "aprobaron", "aprobacion"), "Aprobación"),
+    (("inicia", "inician", "inicio", "iniciaron"), "Inicio"),
+    (("encuentra", "encuentro", "encuentros"), "Encuentro"),
+)
+
+
+def _nominal_from_title(
+    titulo: str,
+    marca: str,
+    aliases: Sequence[str] | None = None,
+) -> str:
+    """Etiqueta nominal corta a partir del título; nunca un recorte de cláusula."""
+    title = as_text(titulo)
+    if not title:
+        return ""
+    stripped = strip_brand_mentions(title, marca, aliases)
+    toks = re.sub(r"[,.;:!?¿¡\"'()\[\]%]", " ", stripped).split()
+    if not toks:
+        toks = re.sub(r"[,.;:!?¿¡\"'()\[\]%]", " ", title).split()
+    folded = [fold_text(w) for w in toks]
+    skip = brand_tokens([marca], aliases or []) | DANGLING | ORG_HEADS
+
+    head = ""
+    head_idx = -1
+    for i, fw in enumerate(folded):
+        for stems, noun in _VERB_TO_NOUN:
+            if fw in stems:
+                head = noun
+                head_idx = i
+                break
+        if head:
+            break
+
+    en_idx = -1
+    start_search = head_idx + 1 if head_idx >= 0 else 0
+    for j in range(start_search, len(toks)):
+        if folded[j] == "en":
+            en_idx = j
+            break
+
+    rest: list[str] = []
+    if en_idx >= 0:
+        for w, fw in zip(toks[en_idx + 1 :], folded[en_idx + 1 :]):
+            if fw in skip or fw.isdigit() or _folded_is_finite_verb(w):
+                continue
+            rest.append(w)
+            if len(rest) >= 3:
+                break
+        if "particip" in fold_text(title) and rest:
+            words = ["Participación", "en", *rest]
+        elif head and rest:
+            words = [head, "en", *rest]
+        else:
+            words = list(rest)
+    else:
+        pool = toks[head_idx + 1 :] if head_idx >= 0 else toks
+        for w in pool:
+            fw = fold_text(w)
+            if fw in skip or fw.isdigit() or _folded_is_finite_verb(w, allow_nominal_head=False):
+                continue
+            if head and fw == fold_text(head):
+                continue
+            rest.append(w)
+            if len(rest) >= (4 if head else MAX_SUBTEMA_WORDS):
+                break
+        if head and rest:
+            words = [head, "de", *rest]
+        elif head:
+            words = [head]
+        else:
+            words = list(rest)
+
+    while words and fold_text(words[0]) in DANGLING | ORG_HEADS | CLAUSE_ARTICLES:
+        words.pop(0)
+    words = strip_dangling(words)
+    if len(words) > MAX_SUBTEMA_WORDS:
+        words = strip_dangling(words[:MAX_SUBTEMA_WORDS])
+    phrase = sentence_case(" ".join(words))
+    phrase = strip_brand_mentions(phrase, marca, aliases)
+    words = _clip_subtema_words(phrase.split())
+    while words and _folded_is_finite_verb(words[-1]):
+        words.pop()
+        words = strip_dangling(words)
+    return sentence_case(" ".join(words))
+
+
+def _fallback_usable(phrase: str, titulo: str, resumen: str, avoid: set[str]) -> bool:
+    if not phrase or len(phrase.split()) < MIN_SUBTEMA_WORDS:
+        return False
+    if ocr_fold(phrase) in avoid:
+        return False
+    if looks_like_collage(phrase) or looks_like_title_scrap(phrase, titulo):
+        return False
+    if looks_like_truncated_clause(phrase) or looks_like_body_extract(phrase, titulo, resumen):
+        return False
+    return True
 
 
 def _fallback_subtema(
@@ -778,17 +1029,15 @@ def _fallback_subtema(
         phrase = sentence_case(" ".join(kept))
         return strip_brand_mentions(phrase, marca, aliases)
 
+    nominal = _nominal_from_title(titulo, marca, aliases)
+    if _fallback_usable(nominal, titulo, resumen, avoid):
+        return nominal
+
     for start in (offset, offset + 3, offset + 6, 1, 5, 8):
         phrase = build(start)
         words = _clip_subtema_words(phrase.split())
         phrase = sentence_case(" ".join(words))
-        if (
-            phrase
-            and len(phrase.split()) >= MIN_SUBTEMA_WORDS
-            and ocr_fold(phrase) not in avoid
-            and not looks_like_collage(phrase)
-            and not looks_like_title_scrap(phrase, titulo)
-        ):
+        if _fallback_usable(phrase, titulo, resumen, avoid):
             return phrase
 
     title_toks = re.sub(r"[,.;:!?¿¡\"']", " ", as_text(titulo)).split()
@@ -803,9 +1052,9 @@ def _fallback_subtema(
     phrase = strip_brand_mentions(sentence_case(" ".join(kept)), marca, aliases)
     words = _clip_subtema_words(phrase.split())
     phrase = sentence_case(" ".join(words))
-    if phrase and ocr_fold(phrase) not in avoid:
+    if _fallback_usable(phrase, titulo, resumen, avoid):
         return phrase
-    return phrase
+    return nominal or phrase
 
 
 def mentions_target(titulo: str, resumen: str, marca: str, aliases: Sequence[str], voceros: Sequence[str]) -> bool:
