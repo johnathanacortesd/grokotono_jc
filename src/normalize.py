@@ -249,17 +249,64 @@ NEG_HEADS = {
     "queja", "quejas", "reclamo", "reclaman", "reclamaron",
     "protesta", "protestan", "protestaron", "manifestacion",
     "sancion", "sancionan", "sanciono", "sancionaron",
-    "investigan", "investigacion",
+    "investigan",
     "corrupcion", "irregularidades", "escandalo",
     "demanda", "demandan", "demandaron",
     "critica", "critican", "criticas",
     "cuestionan", "cuestiono",
-    "senalan", "senalo",
     "rechazo", "rechazan",
     "polemica",
     "retraso", "retrasos", "falla", "fallas",
     "abandono", "negligencia",
 }
+
+# Colaboración / coautoría en un estudio: el FOCO no es el evaluado.
+COLLAB_PHRASES = (
+    "con la colaboracion de",
+    "en colaboracion con",
+    "colaboracion de",
+    "colaboracion entre",
+    "en coautoria",
+    "coautoria con",
+    "coautoria de",
+    "con el apoyo de",
+    "con el respaldo de",
+    "elaborado con la colaboracion",
+    "elaborado con colaboracion",
+    "participo en el estudio",
+    "participaron en el estudio",
+    "participacion en el estudio",
+    "participo en el informe",
+    "participaron en el informe",
+    "participo en la investigacion",
+    "participaron en la investigacion",
+)
+
+STUDY_NOUNS = {
+    "estudio", "informe", "encuesta", "medicion", "investigacion",
+}
+
+PRAISE_CUES = {
+    "destaco", "destaca", "destacaron",
+    "exalto", "exalta",
+    "elogio", "elogia",
+    "agradecio", "agradece",
+    "reconocio", "reconoce",
+    "protagonismo", "liderazgo",
+}
+
+DIRECTED_NEG_CUES = (
+    "contra ",
+    "en contra",
+    "denuncia a",
+    "quejas contra",
+    "investigan a",
+    "bajo investigacion",
+)
+
+# Recorte de oración del cuerpo (no una etiqueta de 3–5 palabras).
+MAX_SUBTEMA_EXTRACT_WORDS = 8
+EXTRACT_SPAN_WORDS = 4
 
 LOCATIVE = {"en", "desde", "hacia", "sede", "escenario", "instalaciones"}
 LOCATIVE_BEFORE = re.compile(
@@ -413,6 +460,27 @@ def _passage_units(text: str) -> list[str]:
     return units
 
 
+def _is_collaborator_sentence(folded: str, wset: set[str]) -> bool:
+    if any(p in folded for p in COLLAB_PHRASES):
+        return True
+    if any(stem in folded for stem in ("participo", "participa", "participaron", "participacion")):
+        if wset & STUDY_NOUNS:
+            return True
+    return False
+
+
+def _has_praise(folded: str, wset: set[str]) -> bool:
+    if wset & PRAISE_CUES:
+        return True
+    return "papel de" in folded or "rol de" in folded or "exalt" in folded
+
+
+def _has_directed_critica(folded: str, wset: set[str]) -> bool:
+    if any(cue in folded for cue in DIRECTED_NEG_CUES):
+        return True
+    return bool(wset & NEG_HEADS)
+
+
 def infer_focus_tono(
     titulo: str,
     resumen: str,
@@ -422,6 +490,9 @@ def infer_focus_tono(
 ) -> str | None:
     """Heurística local: Positivo si el foco es agente de gestión/logro;
     Negativo si la crítica apunta al foco; None si no hay vínculo evaluativo.
+
+    Se juzga por oración (no por la bolsa de palabras de toda la nota), para
+    no pintar el sentimiento del tema (desempleo, crimen…) sobre la marca.
     """
     names = focus_names(marca, aliases, voceros)
     blob = ocr_fold(f"{titulo}. {resumen}")
@@ -430,15 +501,18 @@ def infer_focus_tono(
 
     text = as_text(titulo) + ". " + as_text(resumen)
     sentences = _split_sentences(text)
-    units = [text]
+    units: list[str] = []
+    title = as_text(titulo)
+    if title:
+        units.append(title)
     for sent in sentences:
-        if sent and sent not in units:
+        if sent and ocr_fold(sent) not in {ocr_fold(u) for u in units}:
             units.append(sent)
-    if as_text(titulo) and ocr_fold(as_text(titulo)) not in {ocr_fold(u) for u in units}:
-        units.insert(1, as_text(titulo))
 
     saw_gestion = False
     saw_critica = False
+    saw_collab = False
+    saw_praise = False
     locative_only = True
 
     for sent in units:
@@ -448,23 +522,33 @@ def infer_focus_tono(
             continue
         words = folded.split()
         wset = set(words)
-        has_gestion = bool(wset & GESTION_VERBS) or bool(wset & GESTION_NOUNS)
-        has_neg = bool(wset & NEG_HEADS) or any(
-            cue in folded for cue in ("contra ", "en contra", "denuncia a", "quejas contra")
-        )
         entity_is_locative = any(_entity_is_locative(folded, ocr_fold(n)) for n in hits)
-        if has_neg:
-            saw_critica = True
-            locative_only = False
-        if has_gestion and not entity_is_locative:
-            saw_gestion = True
-            locative_only = False
+        collab = _is_collaborator_sentence(folded, wset)
+        critica = _has_directed_critica(folded, wset)
+        praise = _has_praise(folded, wset)
+        has_gestion = bool(wset & GESTION_VERBS) or bool(wset & GESTION_NOUNS)
+
         if not entity_is_locative:
             locative_only = False
+        if collab:
+            saw_collab = True
+            if praise:
+                saw_praise = True
+            if critica and any(cue in folded for cue in DIRECTED_NEG_CUES):
+                saw_critica = True
+            continue
+        if critica:
+            saw_critica = True
+        if has_gestion and not entity_is_locative:
+            saw_gestion = True
+        if praise:
+            saw_praise = True
 
     if saw_critica:
         return "Negativo"
-    if saw_gestion:
+    if saw_collab and not saw_praise and not saw_gestion:
+        return None
+    if saw_praise or saw_gestion:
         return "Positivo"
     if locative_only:
         return None
@@ -555,6 +639,43 @@ def looks_like_title_or_lead(subtema: str, titulo: str, cuerpo: str) -> bool:
     return looks_like_title_scrap(subtema, titulo)
 
 
+def _is_consecutive_span(needle: Sequence[str], hay: Sequence[str]) -> bool:
+    n = len(needle)
+    if n < EXTRACT_SPAN_WORDS or len(hay) < n:
+        return False
+    needle_l = list(needle)
+    for i in range(len(hay) - n + 1):
+        if list(hay[i : i + n]) == needle_l:
+            return True
+    return False
+
+
+def looks_like_body_extract(subtema: str, titulo: str, cuerpo: str) -> bool:
+    """True si el subtema es un recorte/cita de una oración cruda, no una etiqueta."""
+    phrase = as_text(subtema)
+    words = phrase.split()
+    if not words:
+        return False
+    if len(words) > MAX_SUBTEMA_EXTRACT_WORDS:
+        return True
+    folded = ocr_fold(phrase)
+    fw = folded.split()
+    if len(fw) < EXTRACT_SPAN_WORDS:
+        return False
+    sources = [as_text(titulo), first_content_line(cuerpo)]
+    sources.extend(_split_sentences(cuerpo)[:48])
+    for src in sources:
+        sw = ocr_fold(src).split()
+        if not sw:
+            continue
+        if _is_consecutive_span(fw, sw):
+            return True
+        src_fold = ocr_fold(src)
+        if folded in src_fold and len(sw) >= len(fw) + 2:
+            return True
+    return False
+
+
 def strip_brand_mentions(
     phrase: str,
     marca: str,
@@ -626,6 +747,10 @@ def _phrase_is_unusable(phrase: str, titulo: str, cuerpo: str) -> bool:
         return True
     if looks_like_collage(phrase) or looks_like_title_or_lead(phrase, titulo, cuerpo):
         return True
+    if looks_like_body_extract(phrase, titulo, cuerpo):
+        return True
+    if len(phrase.split()) > MAX_SUBTEMA_EXTRACT_WORDS:
+        return True
     return False
 
 
@@ -654,19 +779,27 @@ def clean_subtema(
     text = re.sub(r"[\"'«»“”‘’]", "", text)
     text = re.sub(r"[:;|/\\]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" .-")
-    phrase = _finalize_subtema(
-        " ".join(text.split()),
-        titulo=titulo,
-        resumen=resumen,
-        marca=marca,
-        aliases=aliases,
+    raw_joined = " ".join(text.split())
+    raw_is_extract = (
+        len(raw_joined.split()) > MAX_SUBTEMA_EXTRACT_WORDS
+        or looks_like_body_extract(raw_joined, titulo, resumen)
     )
+    phrase = ""
+    if not raw_is_extract:
+        phrase = _finalize_subtema(
+            raw_joined,
+            titulo=titulo,
+            resumen=resumen,
+            marca=marca,
+            aliases=aliases,
+        )
     brand_w = set(content_words(marca))
     for alias in aliases or []:
         brand_w |= set(content_words(alias))
     phrase_w = set(content_words(phrase))
     needs_fallback = (
-        _phrase_is_unusable(phrase, titulo, resumen)
+        not phrase
+        or _phrase_is_unusable(phrase, titulo, resumen)
         or len(phrase.split()) < MIN_SUBTEMA_WORDS
         or (brand_w and phrase_w and phrase_w <= brand_w)
     )
@@ -706,6 +839,89 @@ def _source_tokens(resumen: str, titulo: str) -> tuple[list[str], str]:
     return tokens, lead
 
 
+_ANGLE_HEADS = (
+    ("informe", "Informe"),
+    ("estudio", "Estudio"),
+    ("encuesta", "Encuesta"),
+    ("entrega", "Entrega"),
+    ("lanzamiento", "Lanzamiento"),
+    ("encuentro", "Encuentro"),
+    ("convenio", "Convenio"),
+    ("protesta", "Protesta"),
+    ("sancion", "Sanción"),
+    ("becas", "Becas"),
+    ("beca", "Becas"),
+    ("desempleo", "Desempleo"),
+    ("ranking", "Ranking"),
+    ("acreditacion", "Acreditación"),
+    ("diplomado", "Diplomados"),
+    ("pae", "PAE"),
+)
+
+_ANALYTICAL_SKIP = {
+    "llega", "llego", "segun", "nuevo", "nueva", "nuevos", "nuevas",
+    "mil", "ciento", "asi", "revela", "revelo", "otro", "otra",
+    "titular", "distinto", "distinta", "sobre", "anuncia", "anuncio",
+    "hay", "mas", "mitad", "ano", "anos", "porcentaje",
+}
+
+
+def _analytical_fallback(
+    resumen: str,
+    titulo: str,
+    marca: str,
+    aliases: Sequence[str] | None = None,
+) -> str:
+    """Etiqueta nominal 3–5 palabras; no recorta una oración del cuerpo."""
+    skip = brand_tokens([marca], aliases or []) | _ANALYTICAL_SKIP | STOPWORDS
+    blob_words = set(fold_text(f"{titulo} {resumen}").split())
+    head = ""
+    for key, label in _ANGLE_HEADS:
+        if key in blob_words:
+            head = label
+            break
+
+    def take_words(source: str, limit: int) -> list[str]:
+        kept: list[str] = []
+        seen: set[str] = set()
+        for w in re.sub(r"[,.;:!?¿¡\"'()\[\]%]", " ", as_text(source)).split():
+            fw = fold_text(w)
+            if not fw or fw in skip or fw.isdigit() or fw in ORG_HEADS:
+                continue
+            if head and fw == fold_text(head):
+                continue
+            if fw in GESTION_VERBS:
+                continue
+            if fw in seen:
+                continue
+            seen.add(fw)
+            kept.append(w if (w.isupper() and 2 <= len(w) <= 6) else w.lower())
+            if len(kept) >= limit:
+                break
+        return kept
+
+    rest = take_words(titulo, 2 if head else 4)
+    if len(rest) < (2 if head else MIN_SUBTEMA_WORDS):
+        for w in take_words(resumen, 4):
+            if fold_text(w) not in {fold_text(x) for x in rest}:
+                rest.append(w)
+            if len(rest) >= (2 if head else 4):
+                break
+
+    if head:
+        parts = [head]
+        if rest:
+            parts.append("de")
+            parts.extend(rest)
+    else:
+        parts = list(rest)
+    words = strip_dangling(parts)
+    if len(words) > MAX_SUBTEMA_WORDS:
+        words = strip_dangling(words[:MAX_SUBTEMA_WORDS])
+    phrase = sentence_case(" ".join(words))
+    return strip_brand_mentions(phrase, marca, aliases)
+
+
 def _fallback_subtema(
     resumen: str,
     titulo: str,
@@ -733,6 +949,18 @@ def _fallback_subtema(
         phrase = sentence_case(" ".join(kept))
         return strip_brand_mentions(phrase, marca, aliases)
 
+    analytical = _analytical_fallback(resumen, titulo, marca, aliases)
+    if (
+        analytical
+        and len(analytical.split()) >= MIN_SUBTEMA_WORDS
+        and ocr_fold(analytical) not in avoid
+        and not looks_like_collage(analytical)
+        and not looks_like_title_scrap(analytical, titulo)
+        and not looks_like_title_or_lead(analytical, titulo, resumen)
+        and not looks_like_body_extract(analytical, titulo, resumen)
+    ):
+        return analytical
+
     for start in (offset, offset + 3, offset + 6, 1, 5, 8):
         phrase = build(start)
         words = _clip_subtema_words(phrase.split())
@@ -743,6 +971,7 @@ def _fallback_subtema(
             and ocr_fold(phrase) not in avoid
             and not looks_like_collage(phrase)
             and not looks_like_title_scrap(phrase, titulo)
+            and not looks_like_body_extract(phrase, titulo, resumen)
         ):
             return phrase
 
@@ -758,9 +987,14 @@ def _fallback_subtema(
     phrase = strip_brand_mentions(sentence_case(" ".join(kept)), marca, aliases)
     words = _clip_subtema_words(phrase.split())
     phrase = sentence_case(" ".join(words))
-    if phrase and ocr_fold(phrase) not in avoid:
+    if (
+        phrase
+        and ocr_fold(phrase) not in avoid
+        and not looks_like_body_extract(phrase, titulo, resumen)
+        and not looks_like_title_or_lead(phrase, titulo, resumen)
+    ):
         return phrase
-    return phrase
+    return analytical or phrase
 
 
 def mentions_target(titulo: str, resumen: str, marca: str, aliases: Sequence[str], voceros: Sequence[str]) -> bool:
@@ -782,7 +1016,7 @@ def extract_brand_passages(
 
     Recorre el CuerpoEs completo (saltos de línea permitidos). No se queda
     en la primera línea ni recorta el artículo antes de buscar menciones.
-    Esas ventanas son la fuente principal de tono y subtema.
+    Esas ventanas alimentan el TONO (cómo se trata al FOCO), no el subtema.
     """
     titulo = as_text(titulo)
     article = prepare_article(resumen)

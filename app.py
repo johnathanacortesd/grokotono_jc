@@ -413,7 +413,7 @@ def main() -> None:
     brand_header()
     st.markdown(
         '<p class="gx-lead">Clasifica tono_AI, tema_AI y subtema_AI anclados al foco. '
-        "El tono sale de los pasajes que mencionan la marca, no del sentimiento general.</p>",
+        "El tono es de la marca, no del tema; el subtema es una frase resumen, no un extracto.</p>",
         unsafe_allow_html=True,
     )
 
@@ -421,16 +421,19 @@ def main() -> None:
         st.markdown(
             """
 **El tono es un juicio sobre la marca, no sobre la historia.** Se lee el
-**CuerpoEs** completo y se clasifica sobre las ventanas que mencionan marca,
-alias o voceros (el título es apoyo).
+**CuerpoEs** completo y el tono se clasifica sobre las ventanas que mencionan
+marca, alias o voceros (el título es apoyo).
 
 - **Positivo** si el foco hace un encuentro, evento, gestión, entrega,
   lanzamiento, avance o compromiso — aunque el texto no traiga adjetivos.
-- **Negativo** si la crítica o la queja apunta al foco.
-- **Neutro** si no hay pasajes de mención (salvo que el título evalúe al foco)
-  o si solo es sede/escenario.
+- **Negativo** si la crítica o la queja apunta al foco (nunca porque el
+  tema social sea malo).
+- **Neutro** si no hay pasajes de mención (salvo que el título evalúe al foco),
+  si solo es sede/escenario, o si el foco solo **colabora** en un estudio
+  o informe sin crítica.
 
-El **subtema** es una frase de **3 a 5 palabras**, sin el nombre de la marca.
+El **subtema** es una frase resumen analítica de **3 a 5 palabras** (etiqueta
+de clasificación, **no un extracto** del CuerpoEs), sin el nombre de la marca.
 El **tema** agrupa subtemas parecidos en una etiqueta un poco más general.
 Noticias parecidas (OCR) quedan con el mismo subtema y tono; **Positivo** gana.
             """
