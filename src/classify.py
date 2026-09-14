@@ -22,7 +22,6 @@ from src.normalize import (
     normalize_body_text,
 )
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
-from src.tema import assign_temas
 
 ProgressFn = Callable[[float, str], None]
 
@@ -165,12 +164,11 @@ def _draft_row(
         if pasajes is not None
         else extract_brand_passages(titulo, resumen, marca, aliases, voceros)
     )
-    source = passages or titulo
     tono = canonicalize_tono(str(raw.get("tono") or raw.get("tone") or "Neutro"))
     sub = clean_subtema(
         str(raw.get("subtema") or raw.get("sub_tema") or raw.get("subtema_AI") or ""),
         titulo=titulo,
-        resumen=resumen or source,
+        resumen=resumen,
         marca=marca,
         aliases=aliases,
     )
@@ -199,7 +197,7 @@ def classify_rows(
     model: str = DEFAULT_MODEL,
     batch_size: int = 10,
     progress: ProgressFn | None = None,
-) -> tuple[list[str], list[str], list[str], ClassifyStats]:
+) -> tuple[list[str], list[str], ClassifyStats]:
     aliases = list(aliases or [])
     voceros = list(voceros or [])
     stats = ClassifyStats(model=model or DEFAULT_MODEL)
@@ -293,13 +291,10 @@ def classify_rows(
         aliases=aliases,
         exclude_tokens=exclude,
     )
-    if progress:
-        progress(0.96, "Agrupando subtemas en temas…")
-    out_tema = assign_temas(out_sub, marca=marca, aliases=aliases)
     stats.elapsed_s = time.perf_counter() - t0
     if progress:
         progress(1.0, "Clasificación terminada.")
-    return out_tono, out_sub, out_tema, stats
+    return out_tono, out_sub, stats
 
 
 def classify_dataframe(
@@ -310,13 +305,12 @@ def classify_dataframe(
 ):
     titles = df[title_col].tolist()
     resumenes = df[resumen_col].tolist()
-    tonos, subtemas, temas, stats = classify_rows(titles, resumenes, **kwargs)
+    tonos, subtemas, stats = classify_rows(titles, resumenes, **kwargs)
     out = df.copy()
     drop = [c for c in ("tono_AI", "tema_AI", "subtema_AI") if c in out.columns]
     if drop:
         out = out.drop(columns=drop)
     out["tono_AI"] = tonos
-    out["tema_AI"] = temas
     out["subtema_AI"] = subtemas
-    cols = [c for c in out.columns if c not in {"tono_AI", "tema_AI", "subtema_AI"}]
-    return out[cols + ["tono_AI", "tema_AI", "subtema_AI"]], stats
+    cols = [c for c in out.columns if c not in {"tono_AI", "subtema_AI"}]
+    return out[cols + ["tono_AI", "subtema_AI"]], stats

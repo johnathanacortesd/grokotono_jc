@@ -15,9 +15,8 @@ FUENTE
 El TONO se decide SOLO por cómo los PASAJES DEL FOCO (ventanas alrededor de
 marca, alias o voceros) TRATAN AL FOCO. No uses el sentimiento del tema social
 (desempleo, crimen, inflación, pobreza, suicidio, etc.).
-El SUBTEMA es una ETIQUETA ANALÍTICA corta del ÁNGULO de la noticia, a partir
-del TÍTULO + CUERPO (los pasajes son solo contexto). NO es un extracto, cita,
-recorte ni collage del CuerpoEs ni de los pasajes.
+El SUBTEMA se decide con el TÍTULO + el CUERPO completo (CuerpoEs o Resumen).
+Los pasajes NO alimentan el subtema: no copies ni recortes esas ventanas.
 Si NO hay pasajes de mención → tono Neutro, SALVO que el TÍTULO evalúe
 claramente al FOCO (gestión, encuentro, evento, crítica).
 
@@ -66,23 +65,20 @@ si apunta al FOCO → Negativo. El tema social NO desempata hacia Negativo.
 
 SUBTEMA
 Frase nominal CORTA y completa (típicamente 3 a 5 palabras; nunca larga)
-en español colombiano que condensa el ÁNGULO del hecho. Es una ETIQUETA de
-clasificación, no un recorte del texto.
+en español colombiano que condensa el ÁNGULO del hecho a partir del CUERPO
+completo (CuerpoEs o Resumen). No es un collage, no es un recorte del título
+y no es la primera línea del cuerpo.
 - 3 a 5 palabras. Bien: "Entrega de becas de sostenimiento". Mal: una
-  oración larga, un titular reescrito o un pasaje pegado del CuerpoEs.
-- NO es extracto, cita ni fragmento reciclado del CuerpoEs, de los pasajes
-  ni de la primera línea. Inventa una frase lógica condensada del sentido
-  (título + cuerpo). Si una oración del cuerpo sirve de inspiración, NOMINALÍZALA;
-  no la copies.
+  oración larga o un titular reescrito.
 - NO menciones la MARCA, ni alias, ni el nombre de la institución en el
   subtema. El subtema es el tema/ángulo de la noticia, no una etiqueta de
   marca. Mal: "Universidad de Antioquia entrega becas". Bien: "Entrega de
   becas de sostenimiento".
-- Analiza TODO el CUERPO que se te entrega (varios párrafos). Los saltos de
-  línea son de maquetación: NO los trates como fin de oración ni copies la
+- Analiza TODO el CUERPO que se te entrega (varios párrafos). Los saltos de línea
+  son de maquetación: NO los trates como fin de oración ni copies la
   primera línea antes de un \\n.
 - El subtema DEBE ser distinto del TÍTULO y distinto de la primera línea
-  del cuerpo.
+  del cuerpo. Inventa una frase lógica condensada del sentido completo.
 - Oración nominal coherente: sujeto + complemento. Bien: "Inicio de clases
   con PAE". Mal: "Clases PAE Sucre niños".
 - Mayúscula solo en la primera letra (sentence case). Conserva siglas (PAE,
@@ -215,10 +211,10 @@ def build_user_prompt(
         "Colaboración / coautoría / «con la colaboración de [marca]» / participación en un estudio sin crítica → Neutro (Positivo solo si hay elogio del FOCO). Nunca Negativo por el tema.",
         "Si no hay pasajes de mención → Neutro, salvo que el título evalúe al FOCO.",
         "Encuentros, eventos, gestiones, entregas, lanzamientos, avances y compromisos del FOCO → Positivo.",
-        "SUBTEMA: frase-etiqueta analítica de 3 a 5 palabras (no extracto ni cita del CuerpoEs), sin marca, distinta del título y de la primera línea.",
-        "El subtema resume el ÁNGULO de la noticia (título + cuerpo). No pegues oraciones ni fragmentos.",
+        "SUBTEMA: 3 a 5 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.",
+        "Analiza el CUERPO completo (ya viene con saltos de línea unidos). No copies el titular ni el arranque.",
         "",
-        "EJEMPLOS (misma regla de tono y de subtema; el subtema NUNCA nombra la marca ni copia el cuerpo):",
+        "EJEMPLOS (misma regla de tono y de subtema; el subtema NUNCA nombra la marca):",
     ]
     for e in EJEMPLOS:
         lineas.append(f'  TITULAR: {e["titulo"]}')
@@ -242,15 +238,15 @@ def build_user_prompt(
                 "(gestión, encuentro, evento, crítica)."
             )
         lineas.append(
-            "CUERPO (CuerpoEs o Resumen; para entender el SUBTEMA. Analiza el "
-            "ángulo y devuelve una etiqueta de 3 a 5 palabras; NO copies "
-            "oraciones, citas ni extractos):\n"
+            "CUERPO (CuerpoEs o Resumen; texto completo ya normalizado. "
+            "Analiza todo el bloque para el SUBTEMA, no solo la primera oración "
+            "ni la primera línea):\n"
             f"{it.get('resumen', '')}"
         )
         lineas.append("")
     lineas.append(
         "Devuelve JSON: {\"resultados\":[{\"id\":<id>,\"tono\":\"Positivo|Negativo|Neutro\","
-        "\"subtema\":\"<frase-etiqueta de 3 a 5 palabras, sin marca, no extracto>\"}]}"
+        "\"subtema\":\"<frase nominal de 3 a 5 palabras, sin marca>\"}]}"
     )
     if candidatos:
         lineas.append("")
