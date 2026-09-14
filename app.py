@@ -411,6 +411,9 @@ def render_uso_expander() -> None:
     with st.expander("Uso / clientes", expanded=False):
         st.caption(
             "Registro local de corridas (`data/uso_clientes.csv`). "
+            "Tras cada corrida se avisa por correo a "
+            "`cortesalexander8@gmail.com` si hay SMTP o Resend en secrets "
+            "(anulable con `USAGE_NOTIFY_EMAIL`). "
             "En Streamlit Cloud el disco suele reiniciarse salvo que haya "
             "almacenamiento persistente."
         )

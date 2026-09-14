@@ -845,6 +845,86 @@ class UsageLogTests(unittest.TestCase):
         )
         self.assertIsNone(status)
 
+    def test_default_notify_email_and_override(self):
+        from src.usage import DEFAULT_USAGE_NOTIFY_EMAIL, notify_destination
+
+        self.assertEqual(DEFAULT_USAGE_NOTIFY_EMAIL, "cortesalexander8@gmail.com")
+        self.assertEqual(notify_destination({}), DEFAULT_USAGE_NOTIFY_EMAIL)
+        self.assertEqual(
+            notify_destination({"USAGE_NOTIFY_EMAIL": "otro@correo.com"}),
+            "otro@correo.com",
+        )
+
+    def test_sends_via_resend_to_default_when_key_present(self):
+        from unittest.mock import patch
+
+        from src.usage import DEFAULT_USAGE_NOTIFY_EMAIL, maybe_notify_email
+
+        with patch("src.usage._send_resend") as send:
+            status = maybe_notify_email(
+                {"marca": "UdeA", "n_rows": "3", "timestamp": "t"},
+                secrets={"RESEND_API_KEY": "re_test", "SMTP_FROM": "from@ejemplo.com"},
+            )
+        self.assertEqual(status, "resend")
+        send.assert_called_once()
+        kwargs = send.call_args.kwargs
+        self.assertEqual(kwargs["to_addr"], DEFAULT_USAGE_NOTIFY_EMAIL)
+        self.assertEqual(kwargs["api_key"], "re_test")
+
+    def test_sends_via_smtp_to_default_when_host_present(self):
+        from unittest.mock import patch
+
+        from src.usage import DEFAULT_USAGE_NOTIFY_EMAIL, maybe_notify_email
+
+        with patch("src.usage._send_smtp") as send:
+            status = maybe_notify_email(
+                {"marca": "UdeA", "n_rows": "3", "timestamp": "t"},
+                secrets={
+                    "SMTP_HOST": "smtp.ejemplo.com",
+                    "SMTP_USER": "usuario",
+                    "SMTP_PASSWORD": "from-secrets-only",
+                    "SMTP_FROM": "from@ejemplo.com",
+                },
+            )
+        self.assertEqual(status, "smtp")
+        send.assert_called_once()
+        kwargs = send.call_args.kwargs
+        self.assertEqual(kwargs["to_addr"], DEFAULT_USAGE_NOTIFY_EMAIL)
+        self.assertEqual(kwargs["password"], "from-secrets-only")
+        self.assertEqual(kwargs["host"], "smtp.ejemplo.com")
+
+    def test_notify_email_secret_overrides_default(self):
+        from unittest.mock import patch
+
+        from src.usage import maybe_notify_email
+
+        with patch("src.usage._send_smtp") as send:
+            maybe_notify_email(
+                {"marca": "UdeA", "n_rows": "1", "timestamp": "t"},
+                secrets={
+                    "USAGE_NOTIFY_EMAIL": "otro@correo.com",
+                    "SMTP_HOST": "smtp.ejemplo.com",
+                },
+            )
+        self.assertEqual(send.call_args.kwargs["to_addr"], "otro@correo.com")
+
+    def test_no_hardcoded_smtp_passwords_in_source(self):
+        from pathlib import Path
+
+        from src.usage import DEFAULT_USAGE_NOTIFY_EMAIL
+
+        blob = (
+            Path("src/usage.py").read_text(encoding="utf-8")
+            + Path("app.py").read_text(encoding="utf-8")
+            + Path("README.md").read_text(encoding="utf-8")
+        )
+        self.assertIn(DEFAULT_USAGE_NOTIFY_EMAIL, blob)
+        self.assertIn("SMTP_PASSWORD", blob)
+        self.assertNotIn("SMTP_PASSWORD = \"", Path("src/usage.py").read_text(encoding="utf-8"))
+        self.assertNotIn("SMTP_PASSWORD='", Path("src/usage.py").read_text(encoding="utf-8"))
+        self.assertNotIn("sk-", Path("src/usage.py").read_text(encoding="utf-8"))
+        self.assertNotIn("re_prod", Path("src/usage.py").read_text(encoding="utf-8").lower())
+
 
 if __name__ == "__main__":
     unittest.main()

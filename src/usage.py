@@ -16,6 +16,10 @@ from urllib import error, request
 USAGE_DIR = Path("data")
 USAGE_CSV = USAGE_DIR / "uso_clientes.csv"
 
+# Destino por defecto (A.C.). Se puede anular con el secret USAGE_NOTIFY_EMAIL.
+# Contraseñas SMTP / API keys NUNCA van en el código: solo secrets o env.
+DEFAULT_USAGE_NOTIFY_EMAIL = "cortesalexander8@gmail.com"
+
 USAGE_FIELDS = (
     "timestamp",
     "marca",
@@ -192,13 +196,23 @@ def _send_smtp(
         smtp.send_message(msg)
 
 
+def notify_destination(secrets: Mapping[str, Any] | None = None) -> str:
+    """To-address: secret USAGE_NOTIFY_EMAIL, else the confirmed default."""
+    return _secret("USAGE_NOTIFY_EMAIL", secrets) or DEFAULT_USAGE_NOTIFY_EMAIL
+
+
 def maybe_notify_email(
     row: Mapping[str, str],
     *,
     secrets: Mapping[str, Any] | None = None,
 ) -> str | None:
-    """Send an optional usage email. Returns None if skipped or a short status."""
-    to_addr = _secret("USAGE_NOTIFY_EMAIL", secrets)
+    """Send usage email after a successful run if SMTP or Resend secrets exist.
+
+    Destino por defecto: DEFAULT_USAGE_NOTIFY_EMAIL. Anulable con
+    USAGE_NOTIFY_EMAIL. Sin SMTP_HOST ni RESEND_API_KEY no se envía.
+    SMTP_PASSWORD / RESEND_API_KEY se leen solo de secrets/env.
+    """
+    to_addr = notify_destination(secrets)
     if not to_addr:
         return None
     subject, body = _compose_email(row)
@@ -209,6 +223,9 @@ def maybe_notify_email(
         or "grokotono@localhost"
     )
     resend_key = _secret("RESEND_API_KEY", secrets)
+    host = _secret("SMTP_HOST", secrets)
+    if not resend_key and not host:
+        return None
     if resend_key:
         _send_resend(
             api_key=resend_key,
@@ -218,9 +235,6 @@ def maybe_notify_email(
             body=body,
         )
         return "resend"
-    host = _secret("SMTP_HOST", secrets)
-    if not host:
-        return None
     port_raw = _secret("SMTP_PORT", secrets) or "587"
     try:
         port = int(port_raw)

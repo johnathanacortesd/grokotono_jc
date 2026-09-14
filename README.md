@@ -50,34 +50,37 @@ claro. **No hay claves ni contraseñas en el repositorio.**
 
 ### Aviso opcional por correo (uso / clientes)
 
-Tras cada corrida exitosa se appende una fila en `data/uso_clientes.csv`
-(timestamp, marca, alias, filas, conteos de tono, modelo, tiempo, costo).
-El expander **Uso / clientes** muestra las últimas filas si el archivo existe.
+Tras **cada corrida exitosa** se appende una fila en `data/uso_clientes.csv`
+(timestamp, marca, alias, filas, conteos de tono, modelo, tiempo, costo) y,
+si hay canal SMTP o Resend en secrets, se envía un correo de aviso. El
+expander **Uso / clientes** muestra las últimas filas si el archivo existe.
 
-**Caveat Streamlit Cloud:** el sistema de archivos es efímero. El CSV se pierde
-al reiniciar el contenedor salvo que uses un disco persistente (o copies el
-log a otro almacenamiento). En un servidor propio el archivo sí queda.
-
-Para recibir un correo por corrida, agrega destino y **uno** de los dos
-canales:
+El destino por defecto (confirmado por A.C.) es
+**`cortesalexander8@gmail.com`**. Se puede anular con `USAGE_NOTIFY_EMAIL`.
+**No hay contraseñas SMTP ni API keys en el código**; van solo en secrets.
 
 ```toml
-USAGE_NOTIFY_EMAIL = "tu@correo.com"
+# Opcional: anula el destino por defecto (cortesalexander8@gmail.com)
+# USAGE_NOTIFY_EMAIL = "otro@correo.com"
 
 # Opción A — SMTP
 SMTP_HOST = "smtp.ejemplo.com"
 SMTP_PORT = "587"
 SMTP_USER = "usuario"
-SMTP_PASSWORD = "..."
+SMTP_PASSWORD = "..."          # solo en secrets, nunca en el repo
 SMTP_FROM = "grokotono@ejemplo.com"
 
-# Opción B — Resend (si no hay SMTP_HOST)
-RESEND_API_KEY = "re_..."
+# Opción B — Resend (si está RESEND_API_KEY se usa este canal)
+RESEND_API_KEY = "re_..."      # solo en secrets, nunca en el repo
 # SMTP_FROM o USAGE_NOTIFY_FROM = remitente verificado en Resend
 ```
 
-Si no hay `USAGE_NOTIFY_EMAIL`, solo se escribe el CSV. Un fallo de correo
-no interrumpe la clasificación.
+Sin `SMTP_HOST` y sin `RESEND_API_KEY` solo se escribe el CSV. Un fallo de
+correo no interrumpe la clasificación.
+
+**Caveat Streamlit Cloud:** el sistema de archivos es efímero. El CSV se pierde
+al reiniciar el contenedor salvo que uses un disco persistente (o copies el
+log a otro almacenamiento). En un servidor propio el archivo sí queda.
 
 ## Costo API (gpt-4.1-nano)
 
