@@ -1,4 +1,4 @@
-"""App Streamlit: tono, tema y subtema de noticias anclados a una marca."""
+"""App Streamlit: tono y subtema de noticias anclados a una marca."""
 
 from __future__ import annotations
 
@@ -316,7 +316,7 @@ def format_usd(value: float) -> str:
 def brand_header() -> None:
     st.markdown(
         '<div class="gx-brand"><div class="gx-mark">grok<span>tono</span></div>'
-        '<p class="gx-tag">tono · tema · subtema · marca</p></div>',
+        '<p class="gx-tag">tono · subtema · marca</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -361,7 +361,7 @@ def render_download(resultado: pd.DataFrame, archivo_nombre: str, *, key: str) -
     st.download_button(
         "Descargar Excel clasificado",
         data=dataframe_to_xlsx_bytes(resultado),
-        file_name=f"{base}_tono_tema_subtema.xlsx",
+        file_name=f"{base}_tono_subtema.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
         use_container_width=True,
@@ -430,12 +430,12 @@ def main() -> None:
     require_password()
     brand_header()
     st.markdown(
-        '<p class="gx-lead">Clasifica tono_AI, tema_AI y subtema_AI anclados al foco. '
+        '<p class="gx-lead">Clasifica tono_AI y subtema_AI anclados al foco. '
         "El tono mira solo cómo aparece la marca; el subtema sigue saliendo del cuerpo completo.</p>",
         unsafe_allow_html=True,
     )
 
-    with st.expander("Regla de tono, tema y subtema", expanded=False):
+    with st.expander("Regla de tono y subtema", expanded=False):
         st.markdown(
             """
 **El tono es un juicio sobre la marca, no sobre la historia.**
@@ -446,10 +446,8 @@ def main() -> None:
   sobre un tema duro (p. ej. desempleo) **no** es Negativo.
 - **Neutro** solo si no hay vínculo evaluativo (sede, escenario, o la historia es de otro).
 
-El **subtema** es una frase nominal de **3 a 6 palabras**, sin el nombre de la marca,
+El **subtema** es una frase nominal de **3 a 5 palabras**, sin el nombre de la marca,
 distinta del título y de la primera línea del cuerpo. Prefiere la columna **CuerpoEs**.
-El **tema** agrupa subtemas ya listos en una etiqueta temática real (máx. 4 palabras),
-no un collage «palabra y palabra».
 Noticias parecidas (OCR incluido) quedan con el mismo subtema y tono; **Positivo** gana.
             """
         )

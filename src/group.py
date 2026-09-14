@@ -220,7 +220,7 @@ def pick_best_subtema(
     def score(s: str) -> tuple:
         words = strip_dangling(s.split())
         n = len(words)
-        in_range = 1 if 3 <= n <= 6 else 0
+        in_range = 1 if 3 <= n <= 5 else 0
         return (in_range, -abs(4 - n), -len(s), s)
 
     return max(tied, key=score)
