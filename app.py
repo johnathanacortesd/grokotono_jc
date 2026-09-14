@@ -316,7 +316,7 @@ def format_usd(value: float) -> str:
 def brand_header() -> None:
     st.markdown(
         '<div class="gx-brand"><div class="gx-mark">grok<span>tono</span></div>'
-        '<p class="gx-tag">tono · tema · subtema · marca</p></div>',
+        '<p class="gx-tag">tono · subtema · marca</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -361,7 +361,7 @@ def render_download(resultado: pd.DataFrame, archivo_nombre: str, *, key: str) -
     st.download_button(
         "Descargar Excel clasificado",
         data=dataframe_to_xlsx_bytes(resultado),
-        file_name=f"{base}_tono_tema_subtema.xlsx",
+        file_name=f"{base}_tono_subtema.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
         use_container_width=True,
@@ -412,12 +412,12 @@ def main() -> None:
     require_password()
     brand_header()
     st.markdown(
-        '<p class="gx-lead">Clasifica tono_AI, tema_AI y subtema_AI anclados al foco. '
-        "El tono es de la marca, no del tema; el subtema es una frase resumen, no un extracto.</p>",
+        '<p class="gx-lead">Clasifica tono_AI y subtema_AI anclados al foco. '
+        "El tono es de la marca, no del sentimiento de la noticia.</p>",
         unsafe_allow_html=True,
     )
 
-    with st.expander("Regla de tono, tema y subtema", expanded=False):
+    with st.expander("Regla de tono y subtema", expanded=False):
         st.markdown(
             """
 **El tono es un juicio sobre la marca, no sobre la historia.** Se lee el
@@ -432,9 +432,9 @@ marca, alias o voceros (el título es apoyo).
   si solo es sede/escenario, o si el foco solo **colabora** en un estudio
   o informe sin crítica.
 
-El **subtema** es una frase resumen analítica de **3 a 5 palabras** (etiqueta
-de clasificación, **no un extracto** del CuerpoEs), sin el nombre de la marca.
-El **tema** agrupa subtemas parecidos en una etiqueta un poco más general.
+El **subtema** es una frase nominal de **3 a 5 palabras**, sin el nombre de
+la marca, distinta del título y de la primera línea del cuerpo. Se resume
+el ángulo de título + cuerpo completo (no un recorte de los pasajes).
 Noticias parecidas (OCR) quedan con el mismo subtema y tono; **Positivo** gana.
             """
         )

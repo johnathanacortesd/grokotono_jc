@@ -304,10 +304,6 @@ DIRECTED_NEG_CUES = (
     "bajo investigacion",
 )
 
-# Recorte de oración del cuerpo (no una etiqueta de 3–5 palabras).
-MAX_SUBTEMA_EXTRACT_WORDS = 8
-EXTRACT_SPAN_WORDS = 4
-
 LOCATIVE = {"en", "desde", "hacia", "sede", "escenario", "instalaciones"}
 LOCATIVE_BEFORE = re.compile(
     r"\b(?:en|desde|hacia|sede(?:\s+de)?)\s+"
@@ -639,43 +635,6 @@ def looks_like_title_or_lead(subtema: str, titulo: str, cuerpo: str) -> bool:
     return looks_like_title_scrap(subtema, titulo)
 
 
-def _is_consecutive_span(needle: Sequence[str], hay: Sequence[str]) -> bool:
-    n = len(needle)
-    if n < EXTRACT_SPAN_WORDS or len(hay) < n:
-        return False
-    needle_l = list(needle)
-    for i in range(len(hay) - n + 1):
-        if list(hay[i : i + n]) == needle_l:
-            return True
-    return False
-
-
-def looks_like_body_extract(subtema: str, titulo: str, cuerpo: str) -> bool:
-    """True si el subtema es un recorte/cita de una oración cruda, no una etiqueta."""
-    phrase = as_text(subtema)
-    words = phrase.split()
-    if not words:
-        return False
-    if len(words) > MAX_SUBTEMA_EXTRACT_WORDS:
-        return True
-    folded = ocr_fold(phrase)
-    fw = folded.split()
-    if len(fw) < EXTRACT_SPAN_WORDS:
-        return False
-    sources = [as_text(titulo), first_content_line(cuerpo)]
-    sources.extend(_split_sentences(cuerpo)[:48])
-    for src in sources:
-        sw = ocr_fold(src).split()
-        if not sw:
-            continue
-        if _is_consecutive_span(fw, sw):
-            return True
-        src_fold = ocr_fold(src)
-        if folded in src_fold and len(sw) >= len(fw) + 2:
-            return True
-    return False
-
-
 def strip_brand_mentions(
     phrase: str,
     marca: str,
@@ -747,10 +706,6 @@ def _phrase_is_unusable(phrase: str, titulo: str, cuerpo: str) -> bool:
         return True
     if looks_like_collage(phrase) or looks_like_title_or_lead(phrase, titulo, cuerpo):
         return True
-    if looks_like_body_extract(phrase, titulo, cuerpo):
-        return True
-    if len(phrase.split()) > MAX_SUBTEMA_EXTRACT_WORDS:
-        return True
     return False
 
 
@@ -779,27 +734,19 @@ def clean_subtema(
     text = re.sub(r"[\"'«»“”‘’]", "", text)
     text = re.sub(r"[:;|/\\]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" .-")
-    raw_joined = " ".join(text.split())
-    raw_is_extract = (
-        len(raw_joined.split()) > MAX_SUBTEMA_EXTRACT_WORDS
-        or looks_like_body_extract(raw_joined, titulo, resumen)
+    phrase = _finalize_subtema(
+        " ".join(text.split()),
+        titulo=titulo,
+        resumen=resumen,
+        marca=marca,
+        aliases=aliases,
     )
-    phrase = ""
-    if not raw_is_extract:
-        phrase = _finalize_subtema(
-            raw_joined,
-            titulo=titulo,
-            resumen=resumen,
-            marca=marca,
-            aliases=aliases,
-        )
     brand_w = set(content_words(marca))
     for alias in aliases or []:
         brand_w |= set(content_words(alias))
     phrase_w = set(content_words(phrase))
     needs_fallback = (
-        not phrase
-        or _phrase_is_unusable(phrase, titulo, resumen)
+        _phrase_is_unusable(phrase, titulo, resumen)
         or len(phrase.split()) < MIN_SUBTEMA_WORDS
         or (brand_w and phrase_w and phrase_w <= brand_w)
     )
@@ -839,89 +786,6 @@ def _source_tokens(resumen: str, titulo: str) -> tuple[list[str], str]:
     return tokens, lead
 
 
-_ANGLE_HEADS = (
-    ("informe", "Informe"),
-    ("estudio", "Estudio"),
-    ("encuesta", "Encuesta"),
-    ("entrega", "Entrega"),
-    ("lanzamiento", "Lanzamiento"),
-    ("encuentro", "Encuentro"),
-    ("convenio", "Convenio"),
-    ("protesta", "Protesta"),
-    ("sancion", "Sanción"),
-    ("becas", "Becas"),
-    ("beca", "Becas"),
-    ("desempleo", "Desempleo"),
-    ("ranking", "Ranking"),
-    ("acreditacion", "Acreditación"),
-    ("diplomado", "Diplomados"),
-    ("pae", "PAE"),
-)
-
-_ANALYTICAL_SKIP = {
-    "llega", "llego", "segun", "nuevo", "nueva", "nuevos", "nuevas",
-    "mil", "ciento", "asi", "revela", "revelo", "otro", "otra",
-    "titular", "distinto", "distinta", "sobre", "anuncia", "anuncio",
-    "hay", "mas", "mitad", "ano", "anos", "porcentaje",
-}
-
-
-def _analytical_fallback(
-    resumen: str,
-    titulo: str,
-    marca: str,
-    aliases: Sequence[str] | None = None,
-) -> str:
-    """Etiqueta nominal 3–5 palabras; no recorta una oración del cuerpo."""
-    skip = brand_tokens([marca], aliases or []) | _ANALYTICAL_SKIP | STOPWORDS
-    blob_words = set(fold_text(f"{titulo} {resumen}").split())
-    head = ""
-    for key, label in _ANGLE_HEADS:
-        if key in blob_words:
-            head = label
-            break
-
-    def take_words(source: str, limit: int) -> list[str]:
-        kept: list[str] = []
-        seen: set[str] = set()
-        for w in re.sub(r"[,.;:!?¿¡\"'()\[\]%]", " ", as_text(source)).split():
-            fw = fold_text(w)
-            if not fw or fw in skip or fw.isdigit() or fw in ORG_HEADS:
-                continue
-            if head and fw == fold_text(head):
-                continue
-            if fw in GESTION_VERBS:
-                continue
-            if fw in seen:
-                continue
-            seen.add(fw)
-            kept.append(w if (w.isupper() and 2 <= len(w) <= 6) else w.lower())
-            if len(kept) >= limit:
-                break
-        return kept
-
-    rest = take_words(titulo, 2 if head else 4)
-    if len(rest) < (2 if head else MIN_SUBTEMA_WORDS):
-        for w in take_words(resumen, 4):
-            if fold_text(w) not in {fold_text(x) for x in rest}:
-                rest.append(w)
-            if len(rest) >= (2 if head else 4):
-                break
-
-    if head:
-        parts = [head]
-        if rest:
-            parts.append("de")
-            parts.extend(rest)
-    else:
-        parts = list(rest)
-    words = strip_dangling(parts)
-    if len(words) > MAX_SUBTEMA_WORDS:
-        words = strip_dangling(words[:MAX_SUBTEMA_WORDS])
-    phrase = sentence_case(" ".join(words))
-    return strip_brand_mentions(phrase, marca, aliases)
-
-
 def _fallback_subtema(
     resumen: str,
     titulo: str,
@@ -949,18 +813,6 @@ def _fallback_subtema(
         phrase = sentence_case(" ".join(kept))
         return strip_brand_mentions(phrase, marca, aliases)
 
-    analytical = _analytical_fallback(resumen, titulo, marca, aliases)
-    if (
-        analytical
-        and len(analytical.split()) >= MIN_SUBTEMA_WORDS
-        and ocr_fold(analytical) not in avoid
-        and not looks_like_collage(analytical)
-        and not looks_like_title_scrap(analytical, titulo)
-        and not looks_like_title_or_lead(analytical, titulo, resumen)
-        and not looks_like_body_extract(analytical, titulo, resumen)
-    ):
-        return analytical
-
     for start in (offset, offset + 3, offset + 6, 1, 5, 8):
         phrase = build(start)
         words = _clip_subtema_words(phrase.split())
@@ -971,7 +823,6 @@ def _fallback_subtema(
             and ocr_fold(phrase) not in avoid
             and not looks_like_collage(phrase)
             and not looks_like_title_scrap(phrase, titulo)
-            and not looks_like_body_extract(phrase, titulo, resumen)
         ):
             return phrase
 
@@ -987,14 +838,9 @@ def _fallback_subtema(
     phrase = strip_brand_mentions(sentence_case(" ".join(kept)), marca, aliases)
     words = _clip_subtema_words(phrase.split())
     phrase = sentence_case(" ".join(words))
-    if (
-        phrase
-        and ocr_fold(phrase) not in avoid
-        and not looks_like_body_extract(phrase, titulo, resumen)
-        and not looks_like_title_or_lead(phrase, titulo, resumen)
-    ):
+    if phrase and ocr_fold(phrase) not in avoid:
         return phrase
-    return analytical or phrase
+    return phrase
 
 
 def mentions_target(titulo: str, resumen: str, marca: str, aliases: Sequence[str], voceros: Sequence[str]) -> bool:
