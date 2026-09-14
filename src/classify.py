@@ -6,6 +6,7 @@ import json
 import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from openai import OpenAI
@@ -17,6 +18,7 @@ from src.normalize import (
     canonicalize_tono,
     clean_subtema,
     extract_brand_passages,
+    infer_focus_tono,
     mentions_target,
 )
 from src.prompts import SYSTEM_PROMPT, build_user_prompt
@@ -24,6 +26,46 @@ from src.prompts import SYSTEM_PROMPT, build_user_prompt
 ProgressFn = Callable[[float, str], None]
 
 DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
+
+# Tarifas configurables gpt-4.1-nano (USD por 1 millón de tokens).
+INPUT_USD_PER_1M_TOKENS = 0.10
+OUTPUT_USD_PER_1M_TOKENS = 0.40
+
+
+@dataclass
+class ClassifyStats:
+    elapsed_s: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    batches: int = 0
+    model: str = DEFAULT_MODEL
+
+    @property
+    def cost_input_usd(self) -> float:
+        return (self.prompt_tokens / 1_000_000) * INPUT_USD_PER_1M_TOKENS
+
+    @property
+    def cost_output_usd(self) -> float:
+        return (self.completion_tokens / 1_000_000) * OUTPUT_USD_PER_1M_TOKENS
+
+    @property
+    def cost_total_usd(self) -> float:
+        return self.cost_input_usd + self.cost_output_usd
+
+
+def estimate_cost_usd(prompt_tokens: int, completion_tokens: int) -> tuple[float, float, float]:
+    inp = (prompt_tokens / 1_000_000) * INPUT_USD_PER_1M_TOKENS
+    out = (completion_tokens / 1_000_000) * OUTPUT_USD_PER_1M_TOKENS
+    return inp, out, inp + out
+
+
+def _usage_from_response(resp: Any) -> tuple[int, int]:
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return 0, 0
+    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion = int(getattr(usage, "completion_tokens", 0) or 0)
+    return prompt, completion
 
 
 def _parse_json_content(text: str) -> dict:
@@ -75,6 +117,7 @@ def classify_batch(
     model: str,
     candidatos: Sequence[str] | None = None,
     retries: int = 3,
+    usage_sink: ClassifyStats | None = None,
 ) -> dict[int, dict]:
     user = build_user_prompt(
         items, marca=marca, aliases=aliases, voceros=voceros, candidatos=candidatos
@@ -92,6 +135,10 @@ def classify_batch(
                 response_format={"type": "json_object"},
                 max_tokens=min(4000, 90 * max(len(items), 1) + 400),
             )
+            prompt_t, completion_t = _usage_from_response(resp)
+            if usage_sink is not None:
+                usage_sink.prompt_tokens += prompt_t
+                usage_sink.completion_tokens += completion_t
             content = resp.choices[0].message.content or ""
             return _index_resultados(_parse_json_content(content))
         except Exception as exc:  # noqa: BLE001 — se reintenta y se degrada
@@ -116,10 +163,13 @@ def _draft_row(
         resumen=resumen,
         marca=marca,
     )
-    if tono in {"Positivo", "Negativo"} and not mentions_target(
-        titulo, resumen, marca, aliases, voceros
-    ):
+    mentioned = mentions_target(titulo, resumen, marca, aliases, voceros)
+    if tono in {"Positivo", "Negativo"} and not mentioned:
         tono = "Neutro"
+    if tono == "Neutro" and mentioned:
+        hinted = infer_focus_tono(titulo, resumen, marca, aliases, voceros)
+        if hinted in {"Positivo", "Negativo"}:
+            tono = hinted
     return tono, sub
 
 
@@ -134,9 +184,11 @@ def classify_rows(
     model: str = DEFAULT_MODEL,
     batch_size: int = 10,
     progress: ProgressFn | None = None,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], ClassifyStats]:
     aliases = list(aliases or [])
     voceros = list(voceros or [])
+    stats = ClassifyStats(model=model or DEFAULT_MODEL)
+    t0 = time.perf_counter()
     client = OpenAI(api_key=api_key)
     n = len(titles)
     batch_size = max(1, min(int(batch_size or 10), 25))
@@ -146,6 +198,11 @@ def classify_rows(
 
     total_batches = (n + batch_size - 1) // batch_size if n else 1
     done_batches = 0
+    cls_start = 0.04
+    cls_span = 0.86
+
+    if progress:
+        progress(0.02, "Preparando lotes…")
 
     for start in range(0, n, batch_size):
         chunk_ids = list(range(start, min(start + batch_size, n)))
@@ -163,10 +220,12 @@ def classify_rows(
                     )[:900],
                 }
             )
+        lo, hi = chunk_ids[0] + 1, chunk_ids[-1] + 1
         if progress:
+            frac = cls_start + (done_batches / max(total_batches, 1)) * cls_span
             progress(
-                done_batches / max(total_batches, 1),
-                f"Clasificando lote {done_batches + 1} de {total_batches}…",
+                min(frac, 0.90),
+                f"Clasificando lote {done_batches + 1} de {total_batches} · filas {lo}–{hi} de {n}…",
             )
         try:
             mapped = classify_batch(
@@ -177,6 +236,7 @@ def classify_rows(
                 voceros=voceros,
                 model=model,
                 candidatos=candidatos,
+                usage_sink=stats,
             )
         except Exception:
             mapped = {}
@@ -194,10 +254,12 @@ def classify_rows(
             if sub:
                 candidatos.append(sub)
         done_batches += 1
+        stats.batches = done_batches
         if progress:
+            frac = cls_start + (done_batches / max(total_batches, 1)) * cls_span
             progress(
-                done_batches / max(total_batches, 1),
-                f"Lote {done_batches} de {total_batches} listo.",
+                min(frac, 0.90),
+                f"Lote {done_batches} de {total_batches} listo · {hi} de {n} filas.",
             )
 
     if progress:
@@ -212,9 +274,10 @@ def classify_rows(
         marca=marca,
         exclude_tokens=exclude,
     )
+    stats.elapsed_s = time.perf_counter() - t0
     if progress:
         progress(1.0, "Clasificación terminada.")
-    return out_tono, out_sub
+    return out_tono, out_sub, stats
 
 
 def classify_dataframe(
@@ -225,10 +288,10 @@ def classify_dataframe(
 ):
     titles = df[title_col].tolist()
     resumenes = df[resumen_col].tolist()
-    tonos, subtemas = classify_rows(titles, resumenes, **kwargs)
+    tonos, subtemas, stats = classify_rows(titles, resumenes, **kwargs)
     out = df.copy()
     out = out.drop(columns=[c for c in ("tono_AI", "subtema_AI") if c in out.columns])
     out["tono_AI"] = tonos
     out["subtema_AI"] = subtemas
     cols = [c for c in out.columns if c not in {"tono_AI", "subtema_AI"}]
-    return out[cols + ["tono_AI", "subtema_AI"]]
+    return out[cols + ["tono_AI", "subtema_AI"]], stats

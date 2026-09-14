@@ -7,26 +7,42 @@ from typing import Sequence
 SYSTEM_PROMPT = """Eres analista senior de monitoreo de medios en Colombia.
 Etiquetas menciones de prensa en español colombiano.
 
-El TONO se juzga SOLO por lo que la nota dice de la MARCA, sus ALIAS o sus VOCEROS.
+FOCO = MARCA PRINCIPAL + todos sus ALIAS + VOCEROS PROPIOS. Son la misma entidad.
+Trata igual el nombre largo, el nombre corto, la sigla, apodos y el vocero listado.
+Ejemplo: «Universidad de Antioquia», «U. de Antioquia», «UdeA» y el rector listado = mismo FOCO.
+
+El TONO se juzga SOLO por el vínculo de la nota con el FOCO.
 No es el sentimiento general de la historia, ni de un sector, ni de un territorio.
-No es un juicio sobre si el tema es alegre o triste.
 
 TONO ∈ Positivo | Negativo | Neutro
-- Positivo: la marca, un alias o un vocero propio es sujeto de un hecho favorable
-  (obra, programa, avance, beneficio, reconocimiento, alianza, cifra buena,
-  acompañamiento, respaldo, anuncio que los deja bien).
-- Negativo: hay crítica, reclamo, sanción, denuncia o evaluación negativa
-  DIRIGIDA a la marca, su administración o sus voceros.
-- Pregunta clave antes de escribir Negativo: ¿de quién habla la nota?
-  Si la marca o el vocero NO es el responsable, señalado o protagonista de la
-  crítica, el tono es Neutro. Temas graves (muertes, delito, desempleo,
-  inundaciones, obras de terceros, quejas contra otros) NO hacen Negativo a
-  quien aparece de fondo o como voz institucional.
-- El tema no decide el tono. Un informe de la marca sobre un problema es Neutro
-  (o Positivo si aporta solución). Negativo exige ataque o señalamiento CONTRA
-  la marca o el vocero.
-- Neutro: todo lo demás, incluida la ausencia de mención a la marca.
-- Ante duda entre Positivo y Neutro, o entre Negativo y Neutro, elige Neutro.
+
+POSITIVO — úsalo cuando el FOCO es agente, protagonista o beneficiario de un hecho
+que lo deja bien, AUNQUE el texto sea seco y no traiga adjetivos
+(«excelente», «destacado», «exitoso», etc.). Cuentan como Positivo:
+- gestiones y actos oficiales del FOCO: «la Universidad entregó…», «avanzó la obra de…»,
+  «lanzó el programa…», «firmó el convenio…», «inauguró…», «aprobó recursos…»,
+  «puso en marcha…», «destinó inversión…»
+- logros: rankings, acreditación, becas, infraestructura, programas, investigación,
+  graduaciones, trabajo con comunidad, alianzas, convocatorias que abre el FOCO
+- reconocimiento, inversión, cifras buenas, acompañamiento o respaldo al FOCO
+Si el FOCO HACE la gestión, el tono es Positivo. No pidas adjetivos para etiquetar.
+
+NEGATIVO — crítica, queja, denuncia, sanción, protesta, retraso atribuido o
+evaluación negativa DIRIGIDA al FOCO (marca, alias o voceros). El FOCO es el
+señalado, no un tercero.
+
+NEUTRO — úsalo POCO. Solo cuando NO hay vínculo evaluativo con el FOCO:
+- mención de sede o escenario («el foro se realizó en la Universidad»)
+- la historia es de otra persona o entidad; el FOCO aparece de fondo o como dato
+- listado incidental sin gestión ni juicio
+NO uses Neutro para gestiones institucionales del FOCO por ser «solo descriptivas».
+Un informe del FOCO sobre un problema ajeno puede ser Neutro; si el FOCO aporta
+solución o anuncia gestión propia, es Positivo.
+
+Ante duda Positivo vs Neutro: si el FOCO es agente de gestión, logro o acto
+oficial → Positivo.
+Ante duda Negativo vs Neutro: si la crítica no apunta al FOCO → Neutro;
+si apunta al FOCO → Negativo.
 
 SUBTEMA
 Frase nominal corta y completa en español colombiano que condensa el HECHO del
@@ -34,7 +50,7 @@ Resumen (no un collage de palabras clave, no un recorte del título).
 - Oración nominal coherente: sujeto + complemento. Bien: "Inicio de clases con
   alimentación escolar". Mal: "Clases PAE Sucre niños".
 - Mayúscula solo en la primera letra (sentence case). Conserva siglas (PAE, ANI,
-  EPS, DANE) y nombres propios.
+  EPS, DANE, UdeA) y nombres propios.
 - No termines en preposición ni nexo (de, la, el, en, con, por, para, y, del,
   ha, porque…).
 - No copies ni recortes el titular. Sintetiza el resumen.
@@ -50,6 +66,31 @@ Debes devolver un objeto por cada id recibido.
 
 EJEMPLOS = [
     {
+        "titulo": "La Universidad entregó 400 becas de sostenimiento a estudiantes de estratos 1 y 2",
+        "subtema": "Entrega de becas de sostenimiento",
+        "tono": "Positivo",
+    },
+    {
+        "titulo": "Avanzó la obra del nuevo bloque de laboratorios en el campus",
+        "subtema": "Avance de obra de laboratorios",
+        "tono": "Positivo",
+    },
+    {
+        "titulo": "La U. de Antioquia lanzó el programa de diplomados virtuales para docentes",
+        "subtema": "Lanzamiento de diplomados virtuales",
+        "tono": "Positivo",
+    },
+    {
+        "titulo": "Universidad Pontificia Bolivariana firmó convenio de movilidad con institución de España",
+        "subtema": "Convenio de movilidad con España",
+        "tono": "Positivo",
+    },
+    {
+        "titulo": "La institución ocupó el puesto 8 en el ranking QS de universidades colombianas",
+        "subtema": "Puesto 8 en ranking QS nacional",
+        "tono": "Positivo",
+    },
+    {
         "titulo": "Sucre lo hace de nuevo: 40 mil niños y niñas inician sus clases con alimentación escolar desde el primer día",
         "subtema": "Inicio de clases con alimentación escolar",
         "tono": "Positivo",
@@ -60,24 +101,14 @@ EJEMPLOS = [
         "tono": "Positivo",
     },
     {
-        "titulo": "Ciudad Natural del Golfo de Morrosquillo: la estrategia de Sucre para dinamizar el turismo",
-        "subtema": "Ciudad Natural del Golfo de Morrosquillo",
-        "tono": "Positivo",
-    },
-    {
-        "titulo": "En Sucre destruyen más de 250 mil productos de contrabando valorados en más de 670 millones de pesos",
-        "subtema": "Destrucción de productos de contrabando",
-        "tono": "Positivo",
-    },
-    {
-        "titulo": "Sucre abre nuevas rutas de cooperación internacional tras visita de la embajadora de Australia, Anna Chrisp",
-        "subtema": "Cooperación internacional con Australia",
-        "tono": "Positivo",
-    },
-    {
         "titulo": "Gobernación de Sucre aprobó más de $39 mil millones para la construcción de la Variante Sampués - Segovia- Sincelejo",
         "subtema": "Aprobación de recursos para la Variante Sampués",
         "tono": "Positivo",
+    },
+    {
+        "titulo": "Estudiantes protestan contra la Universidad por alza en los derechos de matrícula",
+        "subtema": "Protesta por alza de matrícula",
+        "tono": "Negativo",
     },
     {
         "titulo": "Por demoras en el PAE, Procuraduría suspende a exsecretario de Educación de Sucre",
@@ -85,14 +116,14 @@ EJEMPLOS = [
         "tono": "Negativo",
     },
     {
-        "titulo": "Sancionan a exsecretario de Educación de Sucre, por demora en el PAE",
-        "subtema": "Sanción por retraso en el PAE",
+        "titulo": "Denuncian irregularidades en contratación de la institución",
+        "subtema": "Denuncia de irregularidades en contratación",
         "tono": "Negativo",
     },
     {
-        "titulo": "Vía al Llano, una obra que está estancada",
-        "subtema": "Estancamiento de la vía al Llano",
-        "tono": "Negativo",
+        "titulo": "El foro de periodismo se realizó en el auditorio de la Universidad",
+        "subtema": "Foro de periodismo en el campus",
+        "tono": "Neutro",
     },
     {
         "titulo": "Gobernadores del Caribe y la ANI evalúan proyecto del Canal del Dique",
@@ -119,8 +150,12 @@ def build_user_prompt(
     vocero_txt = ", ".join(voceros) if voceros else "(no definido)"
     lineas = [
         f"MARCA PRINCIPAL: {marca}",
-        f"ALIAS: {alias_txt}",
-        f"VOCEROS PROPIOS: {vocero_txt}",
+        f"ALIAS (misma entidad que la marca): {alias_txt}",
+        f"VOCEROS PROPIOS (misma entidad que la marca): {vocero_txt}",
+        "",
+        "Recuerda: nombre largo, nombre corto, sigla y voceros listados = el mismo FOCO.",
+        "Si el FOCO es el que entrega, lanza, avanza, firma, inaugura, invierte o anuncia, tono Positivo.",
+        "Neutro solo si es sede/escenario o la historia es de otro.",
         "",
         "EJEMPLOS (misma regla de tono y de subtema):",
     ]
@@ -134,15 +169,17 @@ def build_user_prompt(
         pasajes = it.get("pasajes") or ""
         if pasajes:
             lineas.append(
-                "LO QUE SE DICE DE LA MARCA (decide el tono; nada más cuenta): "
+                "LO QUE SE DICE DEL FOCO (marca/alias/voceros; decide el tono): "
                 f"{pasajes}"
             )
         else:
             lineas.append(
-                "LO QUE SE DICE DE LA MARCA: (no hay mención clara) -> tono Neutro"
+                "LO QUE SE DICE DEL FOCO: no hay mención clara al nombre, alias ni voceros. "
+                "Usa Neutro salvo que el título/resumen sí nombren una variante del FOCO "
+                "como agente de una gestión."
             )
         lineas.append(
-            "RESUMEN (sirve para el subtema; NO decide el tono): "
+            "RESUMEN (sirve para el subtema; el tono lo decide el vínculo con el FOCO): "
             f"{it.get('resumen', '')}"
         )
         lineas.append("")
