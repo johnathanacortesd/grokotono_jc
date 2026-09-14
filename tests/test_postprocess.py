@@ -486,7 +486,7 @@ class PromptTests(unittest.TestCase):
     def test_prompt_biases_gestion_to_positivo(self):
         self.assertIn("Si el FOCO HACE la gestión, el tono es Positivo", SYSTEM_PROMPT)
         self.assertIn("NEUTRO — úsalo POCO", SYSTEM_PROMPT)
-        self.assertIn("máximo 6 palabras", SYSTEM_PROMPT.lower())
+        self.assertIn("3 a 6 palabras", SYSTEM_PROMPT)
         self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
         self.assertIn("saltos de línea", SYSTEM_PROMPT)
         self.assertIn("encuentros", SYSTEM_PROMPT.lower())
@@ -503,7 +503,7 @@ class PromptTests(unittest.TestCase):
         self.assertIn("CUERPO (CuerpoEs o Resumen; texto completo ya normalizado.", user)
         self.assertIn("Cuerpo largo de la nota.", user)
         self.assertIn("Encuentros, eventos, gestiones", user)
-        self.assertIn("SUBTEMA: máximo 6 palabras, frase corta completa, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
+        self.assertIn("SUBTEMA: 3 a 6 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
 
 
 class CostTests(unittest.TestCase):
@@ -556,16 +556,15 @@ DESEMPLEO_CUERPO = (
     + "."
 )
 
-# Bloque SUBTEMA (máx. 6 palabras; no recortar a mitad de sentido).
-FROZEN_SUBTEMA_PROMPT = """SUBTEMA
-Frase nominal CORTA y completa (máximo 6 palabras; no recortes a mitad de sentido)
+# Bloque SUBTEMA del commit 18b79f6. El techo de palabras es lo único que
+# puede diferir (5 → 6); el resto del texto debe coincidir carácter a carácter.
+FROZEN_SUBTEMA_PROMPT_18B79F6 = """SUBTEMA
+Frase nominal CORTA y completa (típicamente 3 a 5 palabras; nunca larga)
 en español colombiano que condensa el ÁNGULO del hecho a partir del CUERPO
 completo (CuerpoEs o Resumen). No es un collage, no es un recorte del título
 y no es la primera línea del cuerpo.
-- Máximo 6 palabras. Prefiere una frase corta completa (4 a 6 está bien).
-  Bien: "Entrega de becas de sostenimiento". Bien: "Inicio de clases con
-  alimentación escolar". Bien: "Cocha Molina celebró". Mal: una oración
-  larga, un extracto del cuerpo o un titular reescrito.
+- 3 a 5 palabras. Bien: "Entrega de becas de sostenimiento". Mal: una
+  oración larga o un titular reescrito.
 - NO menciones la MARCA, ni alias, ni el nombre de la institución en el
   subtema. El subtema es el tema/ángulo de la noticia, no una etiqueta de
   marca. Mal: "Universidad de Antioquia entrega becas". Bien: "Entrega de
@@ -589,6 +588,10 @@ y no es la primera línea del cuerpo.
   siendo corto y sin marca).
 
 """
+
+FROZEN_SUBTEMA_PROMPT = FROZEN_SUBTEMA_PROMPT_18B79F6.replace(
+    "3 a 5 palabras", "3 a 6 palabras"
+)
 
 FROZEN_CLEAN_SUBTEMA = {
     (
@@ -698,11 +701,21 @@ class CollaboratorTonoTests(unittest.TestCase):
 
 
 class FrozenSubtema18b79f6Tests(unittest.TestCase):
-    def test_subtema_prompt_core_matches_18b79f6(self):
+    def test_subtema_prompt_is_18b79f6_except_six_word_ceiling(self):
         start = SYSTEM_PROMPT.index("SUBTEMA\n")
         end = SYSTEM_PROMPT.index("Responde ÚNICAMENTE")
-        self.assertEqual(SYSTEM_PROMPT[start:end], FROZEN_SUBTEMA_PROMPT)
-        self.assertIn("máximo 6 palabras", SYSTEM_PROMPT.lower())
+        block = SYSTEM_PROMPT[start:end]
+        self.assertEqual(block, FROZEN_SUBTEMA_PROMPT)
+        self.assertEqual(
+            block.replace("3 a 6 palabras", "3 a 5 palabras"),
+            FROZEN_SUBTEMA_PROMPT_18B79F6,
+        )
+        self.assertIn("típicamente 3 a 6 palabras; nunca larga", block)
+        self.assertIn("3 a 6 palabras. Bien:", block)
+        self.assertNotIn("no recortes a mitad de sentido", block)
+        self.assertNotIn("Prefiere una frase corta completa", block)
+        self.assertNotIn("extracto del cuerpo", block)
+        self.assertNotIn("Cocha Molina celebró", SYSTEM_PROMPT)
         self.assertIn("NO menciones la MARCA", SYSTEM_PROMPT)
         self.assertIn("saltos de línea", SYSTEM_PROMPT)
         self.assertNotIn("tema_ai", SYSTEM_PROMPT.lower())
@@ -717,8 +730,10 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
         self.assertIn("CUERPO_COMPLETO_XYZ", user)
         self.assertIn("CUERPO (CuerpoEs o Resumen; texto completo ya normalizado.", user)
         self.assertIn("Analiza todo el bloque, no solo la primera oración ni la primera línea)", user)
-        self.assertIn("SUBTEMA: máximo 6 palabras, frase corta completa, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
+        self.assertIn("SUBTEMA: 3 a 6 palabras, sin el nombre de la marca/alias, distinto del título y de la primera línea.", user)
         self.assertIn("Analiza el CUERPO completo (ya viene con saltos de línea unidos). No copies el titular ni el arranque.", user)
+        self.assertIn("frase nominal de 3 a 6 palabras, sin marca", user)
+        self.assertNotIn("máximo 6 palabras, frase corta completa", user)
 
     def test_clean_subtema_snapshots_18b79f6(self):
         for (raw, titulo, resumen, marca, aliases), expected in FROZEN_CLEAN_SUBTEMA.items():
@@ -730,6 +745,64 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
                 aliases=list(aliases) if aliases else None,
             )
             self.assertEqual(out, expected, msg=repr(raw))
+
+    def test_six_word_analytical_label_is_kept(self):
+        phrases = [
+            "Inicio de clases con alimentación escolar",
+            "Gallinas ponedoras para economía familiar",
+            "Aprobación de recursos para la Variante Sampués",
+        ]
+        for phrase in phrases:
+            self.assertEqual(len(phrase.split()), 6, msg=phrase)
+            out = clean_subtema(
+                phrase,
+                titulo="Otro titular distinto sobre gestión departamental",
+                resumen=(
+                    "El departamento arrancó el PAE el primer día de clases para 40 mil niños.\n"
+                    "Segundo párrafo de contexto institucional sobre cobertura alimentaria."
+                ),
+                marca="Gobernación de Sucre",
+            )
+            self.assertEqual(out, phrase)
+            self.assertEqual(len(out.split()), 6)
+
+    def test_style_stays_analytical_label_not_extract(self):
+        out = clean_subtema(
+            DESEMPLEO_EXTRACT,
+            titulo=DESEMPLEO_TITULO,
+            resumen=DESEMPLEO_CUERPO,
+            marca=UNINORTE,
+            aliases=UNINORTE_ALIASES,
+        )
+        self.assertGreaterEqual(len(out.split()), 3)
+        self.assertLessEqual(len(out.split()), 6)
+        self.assertFalse(same_folded_phrase(out, DESEMPLEO_EXTRACT))
+        self.assertFalse(same_folded_phrase(out, DESEMPLEO_TITULO))
+        self.assertFalse(same_folded_phrase(out, first_content_line(DESEMPLEO_CUERPO)))
+        clipped_extract = " ".join(DESEMPLEO_EXTRACT.split()[:6])
+        self.assertFalse(same_folded_phrase(out, clipped_extract))
+        self.assertNotIn(",", out)
+
+    def test_pick_best_subtema_six_words_in_range(self):
+        import inspect
+
+        from src.group import pick_best_subtema
+
+        src = inspect.getsource(pick_best_subtema)
+        self.assertIn("3 <= n <= 6", src)
+        self.assertNotIn("3 <= n <= 5", src)
+        six = "Inicio de clases con alimentación escolar"
+        out = pick_best_subtema(
+            [six, six],
+            titulo="Otro titular distinto sobre el PAE departamental",
+            resumen=(
+                "El departamento arrancó el PAE el primer día de clases para 40 mil niños.\n"
+                "Segundo párrafo de contexto institucional."
+            ),
+            marca="Gobernación de Sucre",
+        )
+        self.assertEqual(out, six)
+        self.assertEqual(len(out.split()), 6)
 
     def test_clean_subtema_helpers_unchanged(self):
         import inspect
@@ -749,7 +822,11 @@ class FrozenSubtema18b79f6Tests(unittest.TestCase):
         self.assertIn("needs_fallback", inspect.getsource(clean_subtema))
         self.assertIn("_fallback_subtema", inspect.getsource(clean_subtema))
         self.assertIn("MAX_SUBTEMA_WORDS", inspect.getsource(_clip_subtema_words))
-        self.assertIn("looks_like_collage", inspect.getsource(_phrase_is_unusable))
+        unusable = inspect.getsource(_phrase_is_unusable)
+        self.assertIn("looks_like_collage", unusable)
+        self.assertIn("looks_like_title_or_lead", unusable)
+        self.assertNotIn("extracto", unusable)
+        self.assertNotIn("looks_like_extract", unusable)
         self.assertIn("strip_brand_mentions", inspect.getsource(_finalize_subtema))
         self.assertIn("_source_tokens", inspect.getsource(_fallback_subtema))
 
